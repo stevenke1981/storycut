@@ -1,0 +1,16 @@
+[package]
+name = "storycut-mcp"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+base64 = "0.22"
+jsonschema = { version = "0.57", default-features = false }
+sha2 = { workspace = true }
+serde_json = { workspace = true }
+storycut-command = { path = "../storycut-command" }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+tempfile = "3.23"

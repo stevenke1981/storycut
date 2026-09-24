@@ -1,0 +1,11 @@
+{
+  "project_id": "demo-multitrack",
+  "revision": 9,
+  "path": "raw/base_clean.mp4",
+  "overwrite": false,
+  "idempotency_key": "demo-render-clean-001",
+  "subtitle_mode": "none",
+  "encoder": "h264_cpu",
+  "range_start_tick": 0,
+  "range_end_tick": 19756800000
+}

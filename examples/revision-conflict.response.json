@@ -1,0 +1,31 @@
+{
+  "jsonrpc": "2.0",
+  "id": 5,
+  "result": {
+    "content": [
+      {
+        "type": "text",
+        "text": "{\"api_version\":\"0.2.0\",\"ok\":false,\"request_id\":\"req-conflict\",\"project_id\":\"demo-multitrack\",\"revision\":9,\"data\":null,\"error\":{\"code\":\"REVISION_CONFLICT\",\"message\":\"expected_revision=7，實際為 9；請重讀再規劃。\",\"retryable\":true,\"details\":{\"expected_revision\":7,\"actual_revision\":9}},\"warnings\":[]}"
+      }
+    ],
+    "structuredContent": {
+      "api_version": "0.2.0",
+      "ok": false,
+      "request_id": "req-conflict",
+      "project_id": "demo-multitrack",
+      "revision": 9,
+      "data": null,
+      "error": {
+        "code": "REVISION_CONFLICT",
+        "message": "expected_revision=7，實際為 9；請重讀再規劃。",
+        "retryable": true,
+        "details": {
+          "expected_revision": 7,
+          "actual_revision": 9
+        }
+      },
+      "warnings": []
+    },
+    "isError": true
+  }
+}

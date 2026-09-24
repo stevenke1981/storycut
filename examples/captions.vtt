@@ -1,0 +1,11 @@
+WEBVTT
+
+NOTE 此為字幕功能驗收樣本，不代表已有 App 實作。
+
+cue-a
+00:00:01.000 --> 00:00:04.000 line:85% position:50% align:center size:90%
+第一張圖片，緩緩向右移動。
+
+cue-b
+00:00:10.000 --> 00:00:18.000 line:85% position:50% align:center size:90%
+第二張圖片，緩緩向上移動。

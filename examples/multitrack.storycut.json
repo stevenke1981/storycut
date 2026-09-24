@@ -1,0 +1,545 @@
+{
+  "schema_version": "0.2.0-draft",
+  "project_id": "demo-multitrack",
+  "revision": 0,
+  "name": "多軌：兩圖＋影片＋疊圖＋旁白配樂音效，28 秒",
+  "timebase": 705600000,
+  "canvas": {
+    "width": 1920,
+    "height": 1080,
+    "fps": {
+      "num": 30,
+      "den": 1
+    },
+    "background": "#000000",
+    "color_mode": "sdr_bt709"
+  },
+  "audio_sample_rate": 48000,
+  "notes": [
+    "規格測試資料，不是已渲染或已探測的專案；media/* 檔案不包含在 ZIP。",
+    "unprobed 素材資料為示例宣告，不能當作 ffprobe 實測。"
+  ],
+  "assets": [
+    {
+      "id": "image-a",
+      "kind": "image",
+      "path": "media/image-a.png",
+      "probe_status": "unprobed",
+      "duration_ticks": null,
+      "sha256": null,
+      "streams": []
+    },
+    {
+      "id": "image-b",
+      "kind": "image",
+      "path": "media/image-b.png",
+      "probe_status": "unprobed",
+      "duration_ticks": null,
+      "sha256": null,
+      "streams": []
+    },
+    {
+      "id": "video-c",
+      "kind": "video",
+      "path": "media/video-c.mp4",
+      "probe_status": "unprobed",
+      "duration_ticks": 14112000000,
+      "sha256": null,
+      "streams": [
+        {
+          "index": 0,
+          "kind": "video",
+          "time_base": {
+            "num": 1,
+            "den": 90000
+          },
+          "sample_rate": null
+        },
+        {
+          "index": 1,
+          "kind": "audio",
+          "time_base": {
+            "num": 1,
+            "den": 48000
+          },
+          "sample_rate": 48000
+        }
+      ]
+    },
+    {
+      "id": "logo",
+      "kind": "image",
+      "path": "media/logo.png",
+      "probe_status": "unprobed",
+      "duration_ticks": null,
+      "sha256": null,
+      "streams": []
+    },
+    {
+      "id": "narration",
+      "kind": "audio",
+      "path": "media/narration.wav",
+      "probe_status": "unprobed",
+      "duration_ticks": 19756800000,
+      "sha256": null,
+      "streams": [
+        {
+          "index": 0,
+          "kind": "audio",
+          "time_base": {
+            "num": 1,
+            "den": 48000
+          },
+          "sample_rate": 48000
+        }
+      ]
+    },
+    {
+      "id": "music",
+      "kind": "audio",
+      "path": "media/music.wav",
+      "probe_status": "unprobed",
+      "duration_ticks": 42336000000,
+      "sha256": null,
+      "streams": [
+        {
+          "index": 0,
+          "kind": "audio",
+          "time_base": {
+            "num": 1,
+            "den": 48000
+          },
+          "sample_rate": 48000
+        }
+      ]
+    },
+    {
+      "id": "sfx",
+      "kind": "audio",
+      "path": "media/sfx.wav",
+      "probe_status": "unprobed",
+      "duration_ticks": 705600000,
+      "sha256": null,
+      "streams": [
+        {
+          "index": 0,
+          "kind": "audio",
+          "time_base": {
+            "num": 1,
+            "den": 48000
+          },
+          "sample_rate": 48000
+        }
+      ]
+    }
+  ],
+  "tracks": [
+    {
+      "id": "v1",
+      "kind": "video",
+      "name": "主畫面：圖片與影片",
+      "locked": false,
+      "enabled": true,
+      "muted": false,
+      "solo": false,
+      "gain_db": 0
+    },
+    {
+      "id": "v2",
+      "kind": "video",
+      "name": "影片疊加",
+      "locked": false,
+      "enabled": true,
+      "muted": false,
+      "solo": false,
+      "gain_db": 0
+    },
+    {
+      "id": "i1",
+      "kind": "image",
+      "name": "透明圖片／標誌",
+      "locked": false,
+      "enabled": true,
+      "muted": false,
+      "solo": false,
+      "gain_db": 0
+    },
+    {
+      "id": "a1",
+      "kind": "audio",
+      "name": "影片原聲",
+      "locked": false,
+      "enabled": true,
+      "muted": false,
+      "solo": false,
+      "gain_db": 0
+    },
+    {
+      "id": "a2",
+      "kind": "audio",
+      "name": "旁白",
+      "locked": false,
+      "enabled": true,
+      "muted": false,
+      "solo": false,
+      "gain_db": 0
+    },
+    {
+      "id": "a3",
+      "kind": "audio",
+      "name": "背景配樂",
+      "locked": false,
+      "enabled": true,
+      "muted": false,
+      "solo": false,
+      "gain_db": 0
+    },
+    {
+      "id": "a4",
+      "kind": "audio",
+      "name": "音效",
+      "locked": false,
+      "enabled": true,
+      "muted": false,
+      "solo": false,
+      "gain_db": 0
+    },
+    {
+      "id": "s1",
+      "kind": "subtitle",
+      "name": "字幕",
+      "locked": false,
+      "enabled": true,
+      "muted": false,
+      "solo": false,
+      "gain_db": 0
+    }
+  ],
+  "clips": [
+    {
+      "id": "clip-a",
+      "track_id": "v1",
+      "asset_id": "image-a",
+      "kind": "image",
+      "start_tick": 0,
+      "duration_ticks": 7056000000,
+      "source_in_tick": 0,
+      "motion": {
+        "domain_duration_ticks": 7056000000,
+        "sample_offset_tick": 0,
+        "fit": "cover",
+        "avoid_exposed_edges": true,
+        "anchor": {
+          "x": 0.5,
+          "y": 0.5
+        },
+        "interpolation": "smoothstep",
+        "keyframes": [
+          {
+            "tick": 0,
+            "x": -0.03,
+            "y": 0,
+            "scale": 1.1,
+            "opacity": 1
+          },
+          {
+            "tick": 7032480000,
+            "x": 0.03,
+            "y": 0,
+            "scale": 1.18,
+            "opacity": 1
+          }
+        ]
+      }
+    },
+    {
+      "id": "clip-b",
+      "track_id": "v1",
+      "asset_id": "image-b",
+      "kind": "image",
+      "start_tick": 6350400000,
+      "duration_ticks": 7056000000,
+      "source_in_tick": 0,
+      "motion": {
+        "domain_duration_ticks": 7056000000,
+        "sample_offset_tick": 0,
+        "fit": "cover",
+        "avoid_exposed_edges": true,
+        "anchor": {
+          "x": 0.5,
+          "y": 0.5
+        },
+        "interpolation": "smoothstep",
+        "keyframes": [
+          {
+            "tick": 0,
+            "x": 0,
+            "y": 0.03,
+            "scale": 1.14,
+            "opacity": 1
+          },
+          {
+            "tick": 7032480000,
+            "x": 0,
+            "y": -0.03,
+            "scale": 1.14,
+            "opacity": 1
+          }
+        ]
+      }
+    },
+    {
+      "id": "clip-c",
+      "track_id": "v1",
+      "asset_id": "video-c",
+      "kind": "video",
+      "start_tick": 12700800000,
+      "duration_ticks": 7056000000,
+      "source_in_tick": 1411200000,
+      "stream_index": 0,
+      "audio_policy": "separate_linked",
+      "motion": {
+        "domain_duration_ticks": 7056000000,
+        "sample_offset_tick": 0,
+        "fit": "cover",
+        "avoid_exposed_edges": true,
+        "anchor": {
+          "x": 0.5,
+          "y": 0.5
+        },
+        "interpolation": "smoothstep",
+        "keyframes": [
+          {
+            "tick": 0,
+            "x": 0,
+            "y": 0,
+            "scale": 1,
+            "opacity": 1
+          },
+          {
+            "tick": 7032480000,
+            "x": 0,
+            "y": 0,
+            "scale": 1,
+            "opacity": 1
+          }
+        ]
+      }
+    },
+    {
+      "id": "broll",
+      "track_id": "v2",
+      "asset_id": "video-c",
+      "kind": "video",
+      "start_tick": 14112000000,
+      "duration_ticks": 2822400000,
+      "source_in_tick": 8467200000,
+      "stream_index": 0,
+      "audio_policy": "muted",
+      "motion": {
+        "domain_duration_ticks": 2822400000,
+        "sample_offset_tick": 0,
+        "fit": "contain",
+        "avoid_exposed_edges": false,
+        "anchor": {
+          "x": 0.5,
+          "y": 0.5
+        },
+        "interpolation": "smoothstep",
+        "keyframes": [
+          {
+            "tick": 0,
+            "x": 0.28,
+            "y": 0.25,
+            "scale": 0.32,
+            "opacity": 1
+          },
+          {
+            "tick": 2798880000,
+            "x": 0.28,
+            "y": 0.25,
+            "scale": 0.32,
+            "opacity": 1
+          }
+        ]
+      }
+    },
+    {
+      "id": "logo-clip",
+      "track_id": "i1",
+      "asset_id": "logo",
+      "kind": "image",
+      "start_tick": 1411200000,
+      "duration_ticks": 4233600000,
+      "source_in_tick": 0,
+      "motion": {
+        "domain_duration_ticks": 4233600000,
+        "sample_offset_tick": 0,
+        "fit": "contain",
+        "avoid_exposed_edges": false,
+        "anchor": {
+          "x": 0.5,
+          "y": 0.5
+        },
+        "interpolation": "smoothstep",
+        "keyframes": [
+          {
+            "tick": 0,
+            "x": 0.32,
+            "y": -0.32,
+            "scale": 0.18,
+            "opacity": 1
+          },
+          {
+            "tick": 4210080000,
+            "x": 0.32,
+            "y": -0.32,
+            "scale": 0.18,
+            "opacity": 1
+          }
+        ]
+      }
+    },
+    {
+      "id": "video-c-audio",
+      "track_id": "a1",
+      "asset_id": "video-c",
+      "kind": "audio",
+      "start_tick": 12700800000,
+      "duration_ticks": 7056000000,
+      "source_in_tick": 1411200000,
+      "stream_index": 1,
+      "audio": {
+        "domain_duration_ticks": 7056000000,
+        "sample_offset_tick": 0,
+        "gain_db": 0,
+        "pan": 0,
+        "muted": false,
+        "fade_in_ticks": 705600000,
+        "fade_out_ticks": 0,
+        "fade_curve": "linear_amplitude"
+      }
+    },
+    {
+      "id": "voice",
+      "track_id": "a2",
+      "asset_id": "narration",
+      "kind": "audio",
+      "start_tick": 0,
+      "duration_ticks": 19756800000,
+      "source_in_tick": 0,
+      "stream_index": 0,
+      "audio": {
+        "domain_duration_ticks": 19756800000,
+        "sample_offset_tick": 0,
+        "gain_db": 0,
+        "pan": 0,
+        "muted": false,
+        "fade_in_ticks": 0,
+        "fade_out_ticks": 0,
+        "fade_curve": "linear_amplitude"
+      }
+    },
+    {
+      "id": "bgm",
+      "track_id": "a3",
+      "asset_id": "music",
+      "kind": "audio",
+      "start_tick": 0,
+      "duration_ticks": 19756800000,
+      "source_in_tick": 0,
+      "stream_index": 0,
+      "audio": {
+        "domain_duration_ticks": 19756800000,
+        "sample_offset_tick": 0,
+        "gain_db": -18,
+        "pan": 0,
+        "muted": false,
+        "fade_in_ticks": 705600000,
+        "fade_out_ticks": 1411200000,
+        "fade_curve": "linear_amplitude"
+      }
+    },
+    {
+      "id": "sfx-clip",
+      "track_id": "a4",
+      "asset_id": "sfx",
+      "kind": "audio",
+      "start_tick": 6350400000,
+      "duration_ticks": 705600000,
+      "source_in_tick": 0,
+      "stream_index": 0,
+      "audio": {
+        "domain_duration_ticks": 705600000,
+        "sample_offset_tick": 0,
+        "gain_db": -6,
+        "pan": 0,
+        "muted": false,
+        "fade_in_ticks": 0,
+        "fade_out_ticks": 0,
+        "fade_curve": "linear_amplitude"
+      }
+    }
+  ],
+  "transitions": [
+    {
+      "id": "xf-ab",
+      "track_id": "v1",
+      "from_clip_id": "clip-a",
+      "to_clip_id": "clip-b",
+      "start_tick": 6350400000,
+      "duration_ticks": 705600000,
+      "kind": "cross_dissolve",
+      "curve": "linear",
+      "audio_policy": "independent"
+    },
+    {
+      "id": "xf-bc",
+      "track_id": "v1",
+      "from_clip_id": "clip-b",
+      "to_clip_id": "clip-c",
+      "start_tick": 12700800000,
+      "duration_ticks": 705600000,
+      "kind": "cross_dissolve",
+      "curve": "linear",
+      "audio_policy": "independent"
+    }
+  ],
+  "links": [
+    {
+      "id": "link-c",
+      "kind": "av_sync",
+      "clip_ids": [
+        "clip-c",
+        "video-c-audio"
+      ]
+    }
+  ],
+  "subtitles": [
+    {
+      "id": "sub-doc-1",
+      "track_id": "s1",
+      "format": "vtt",
+      "offset_tick": 0,
+      "path": "captions.vtt",
+      "raw_document": "WEBVTT\n\nNOTE 此為字幕功能驗收樣本，不代表已有 App 實作。\n\ncue-a\n00:00:01.000 --> 00:00:04.000 line:85% position:50% align:center size:90%\n第一張圖片，緩緩向右移動。\n\ncue-b\n00:00:10.000 --> 00:00:18.000 line:85% position:50% align:center size:90%\n第二張圖片，緩緩向上移動。\n",
+      "preserve_unknown_syntax": true,
+      "cues": [
+        {
+          "id": "cue-a",
+          "start_tick": 705600000,
+          "end_tick": 2822400000,
+          "text": "第一張圖片，緩緩向右移動。",
+          "source_payload": "line:85% position:50% align:center size:90%"
+        },
+        {
+          "id": "cue-b",
+          "start_tick": 7056000000,
+          "end_tick": 12700800000,
+          "text": "第二張圖片，緩緩向上移動。",
+          "source_payload": "line:85% position:50% align:center size:90%"
+        }
+      ]
+    }
+  ]
+}

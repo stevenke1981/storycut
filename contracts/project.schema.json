@@ -1,0 +1,912 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$ref": "#/$defs/project",
+  "$defs": {
+    "asset": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "video",
+            "image",
+            "audio"
+          ]
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 32767,
+          "description": "本機路徑，必須再做工作區授權／canonical path 驗證；JSON Schema 不授權檔案存取。"
+        },
+        "probe_status": {
+          "type": "string",
+          "enum": [
+            "unprobed",
+            "probed",
+            "offline",
+            "error"
+          ]
+        },
+        "duration_ticks": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 60963840000000
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "sha256": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "streams": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/stream"
+          },
+          "minItems": 0,
+          "maxItems": 64
+        }
+      },
+      "required": [
+        "id",
+        "kind",
+        "path",
+        "probe_status",
+        "duration_ticks",
+        "sha256",
+        "streams"
+      ],
+      "additionalProperties": false
+    },
+    "audio": {
+      "type": "object",
+      "properties": {
+        "domain_duration_ticks": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 60963840000000
+        },
+        "sample_offset_tick": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 60963840000000
+        },
+        "gain_db": {
+          "type": "number",
+          "minimum": -96,
+          "maximum": 24
+        },
+        "pan": {
+          "type": "number",
+          "minimum": -1,
+          "maximum": 1
+        },
+        "muted": {
+          "type": "boolean"
+        },
+        "fade_in_ticks": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 60963840000000
+        },
+        "fade_out_ticks": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 60963840000000
+        },
+        "fade_curve": {
+          "type": "string",
+          "enum": [
+            "linear_amplitude"
+          ]
+        }
+      },
+      "required": [
+        "domain_duration_ticks",
+        "sample_offset_tick",
+        "gain_db",
+        "pan",
+        "muted",
+        "fade_in_ticks",
+        "fade_out_ticks",
+        "fade_curve"
+      ],
+      "additionalProperties": false
+    },
+    "audio_clip": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+        },
+        "track_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+        },
+        "asset_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+        },
+        "start_tick": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 60963840000000
+        },
+        "duration_ticks": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 60963840000000
+        },
+        "source_in_tick": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 60963840000000
+        },
+        "kind": {
+          "const": "audio"
+        },
+        "stream_index": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "audio": {
+          "$ref": "#/$defs/audio"
+        }
+      },
+      "required": [
+        "id",
+        "track_id",
+        "asset_id",
+        "start_tick",
+        "duration_ticks",
+        "source_in_tick",
+        "kind",
+        "stream_index",
+        "audio"
+      ],
+      "additionalProperties": false
+    },
+    "canvas": {
+      "type": "object",
+      "properties": {
+        "width": {
+          "type": "integer",
+          "minimum": 16,
+          "maximum": 7680
+        },
+        "height": {
+          "type": "integer",
+          "minimum": 16,
+          "maximum": 7680
+        },
+        "fps": {
+          "type": "object",
+          "properties": {
+            "num": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 1000000
+            },
+            "den": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 1000000
+            }
+          },
+          "required": [
+            "num",
+            "den"
+          ],
+          "additionalProperties": false
+        },
+        "background": {
+          "type": "string",
+          "pattern": "^#[A-Fa-f0-9]{6}$"
+        },
+        "color_mode": {
+          "const": "sdr_bt709"
+        }
+      },
+      "required": [
+        "width",
+        "height",
+        "fps",
+        "background",
+        "color_mode"
+      ],
+      "additionalProperties": false
+    },
+    "clip": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/image_clip"
+        },
+        {
+          "$ref": "#/$defs/video_clip"
+        },
+        {
+          "$ref": "#/$defs/audio_clip"
+        }
+      ]
+    },
+    "cue": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+        },
+        "start_tick": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 60963840000000
+        },
+        "end_tick": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 60963840000000
+        },
+        "text": {
+          "type": "string",
+          "maxLength": 65536
+        },
+        "source_payload": {
+          "type": "string",
+          "maxLength": 65536
+        }
+      },
+      "required": [
+        "id",
+        "start_tick",
+        "end_tick",
+        "text",
+        "source_payload"
+      ],
+      "additionalProperties": false
+    },
+    "image_clip": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+        },
+        "track_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+        },
+        "asset_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+        },
+        "start_tick": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 60963840000000
+        },
+        "duration_ticks": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 60963840000000
+        },
+        "source_in_tick": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 60963840000000
+        },
+        "kind": {
+          "const": "image"
+        },
+        "motion": {
+          "$ref": "#/$defs/motion"
+        }
+      },
+      "required": [
+        "id",
+        "track_id",
+        "asset_id",
+        "start_tick",
+        "duration_ticks",
+        "source_in_tick",
+        "kind",
+        "motion"
+      ],
+      "additionalProperties": false
+    },
+    "keyframe": {
+      "type": "object",
+      "properties": {
+        "tick": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 60963840000000
+        },
+        "x": {
+          "type": "number",
+          "minimum": -4,
+          "maximum": 4
+        },
+        "y": {
+          "type": "number",
+          "minimum": -4,
+          "maximum": 4
+        },
+        "scale": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 16
+        },
+        "opacity": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        }
+      },
+      "required": [
+        "tick",
+        "x",
+        "y",
+        "scale",
+        "opacity"
+      ],
+      "additionalProperties": false
+    },
+    "link": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+        },
+        "kind": {
+          "const": "av_sync"
+        },
+        "clip_ids": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+          },
+          "minItems": 2,
+          "maxItems": 2
+        }
+      },
+      "required": [
+        "id",
+        "kind",
+        "clip_ids"
+      ],
+      "additionalProperties": false
+    },
+    "motion": {
+      "type": "object",
+      "properties": {
+        "domain_duration_ticks": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 60963840000000
+        },
+        "sample_offset_tick": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 60963840000000
+        },
+        "fit": {
+          "type": "string",
+          "enum": [
+            "contain",
+            "cover"
+          ]
+        },
+        "avoid_exposed_edges": {
+          "type": "boolean"
+        },
+        "anchor": {
+          "type": "object",
+          "properties": {
+            "x": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "y": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            }
+          },
+          "required": [
+            "x",
+            "y"
+          ],
+          "additionalProperties": false
+        },
+        "interpolation": {
+          "type": "string",
+          "enum": [
+            "linear",
+            "smoothstep"
+          ]
+        },
+        "keyframes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/keyframe"
+          },
+          "minItems": 1,
+          "maxItems": 2
+        }
+      },
+      "required": [
+        "domain_duration_ticks",
+        "sample_offset_tick",
+        "fit",
+        "avoid_exposed_edges",
+        "anchor",
+        "interpolation",
+        "keyframes"
+      ],
+      "additionalProperties": false
+    },
+    "project": {
+      "type": "object",
+      "properties": {
+        "schema_version": {
+          "const": "0.2.0-draft"
+        },
+        "project_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "name": {
+          "type": "string",
+          "maxLength": 65536
+        },
+        "timebase": {
+          "const": 705600000
+        },
+        "canvas": {
+          "$ref": "#/$defs/canvas"
+        },
+        "audio_sample_rate": {
+          "type": "integer",
+          "enum": [
+            44100,
+            48000,
+            96000
+          ]
+        },
+        "notes": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 65536
+          },
+          "minItems": 0,
+          "maxItems": 100
+        },
+        "assets": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/asset"
+          },
+          "minItems": 0,
+          "maxItems": 100000
+        },
+        "tracks": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/track"
+          },
+          "minItems": 0,
+          "maxItems": 256
+        },
+        "clips": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/clip"
+          },
+          "minItems": 0,
+          "maxItems": 100000
+        },
+        "transitions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/transition"
+          },
+          "minItems": 0,
+          "maxItems": 100000
+        },
+        "links": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/link"
+          },
+          "minItems": 0,
+          "maxItems": 100000
+        },
+        "subtitles": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/subtitle"
+          },
+          "minItems": 0,
+          "maxItems": 100000
+        }
+      },
+      "required": [
+        "schema_version",
+        "project_id",
+        "revision",
+        "name",
+        "timebase",
+        "canvas",
+        "audio_sample_rate",
+        "notes",
+        "assets",
+        "tracks",
+        "clips",
+        "transitions",
+        "links",
+        "subtitles"
+      ],
+      "additionalProperties": false
+    },
+    "stream": {
+      "type": "object",
+      "properties": {
+        "index": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "video",
+            "audio"
+          ]
+        },
+        "time_base": {
+          "type": "object",
+          "properties": {
+            "num": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 1000000
+            },
+            "den": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 1000000
+            }
+          },
+          "required": [
+            "num",
+            "den"
+          ],
+          "additionalProperties": false
+        },
+        "sample_rate": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 8000,
+              "maximum": 384000
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "index",
+        "kind",
+        "time_base",
+        "sample_rate"
+      ],
+      "additionalProperties": false
+    },
+    "subtitle": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+        },
+        "track_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+        },
+        "format": {
+          "type": "string",
+          "enum": [
+            "srt",
+            "ass",
+            "ssa",
+            "vtt"
+          ]
+        },
+        "offset_tick": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 60963840000000
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 32767,
+          "description": "本機路徑，必須再做工作區授權／canonical path 驗證；JSON Schema 不授權檔案存取。"
+        },
+        "raw_document": {
+          "type": "string",
+          "maxLength": 65536
+        },
+        "cues": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/cue"
+          },
+          "minItems": 0,
+          "maxItems": 100000
+        },
+        "preserve_unknown_syntax": {
+          "const": true
+        }
+      },
+      "required": [
+        "id",
+        "track_id",
+        "format",
+        "offset_tick",
+        "path",
+        "raw_document",
+        "cues",
+        "preserve_unknown_syntax"
+      ],
+      "additionalProperties": false
+    },
+    "track": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "video",
+            "image",
+            "audio",
+            "subtitle"
+          ]
+        },
+        "locked": {
+          "type": "boolean"
+        },
+        "enabled": {
+          "type": "boolean"
+        },
+        "muted": {
+          "type": "boolean"
+        },
+        "solo": {
+          "type": "boolean"
+        },
+        "gain_db": {
+          "type": "number",
+          "minimum": -96,
+          "maximum": 24
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "kind",
+        "locked",
+        "enabled",
+        "muted",
+        "solo",
+        "gain_db"
+      ],
+      "additionalProperties": false
+    },
+    "transition": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+        },
+        "track_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+        },
+        "from_clip_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+        },
+        "to_clip_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+        },
+        "start_tick": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 60963840000000
+        },
+        "duration_ticks": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 60963840000000
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "cross_dissolve",
+            "fade_black",
+            "fade_white",
+            "slide_left",
+            "slide_right",
+            "wipe_left",
+            "wipe_right"
+          ]
+        },
+        "curve": {
+          "const": "linear"
+        },
+        "audio_policy": {
+          "const": "independent"
+        }
+      },
+      "required": [
+        "id",
+        "track_id",
+        "from_clip_id",
+        "to_clip_id",
+        "start_tick",
+        "duration_ticks",
+        "kind",
+        "curve",
+        "audio_policy"
+      ],
+      "additionalProperties": false
+    },
+    "video_clip": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+        },
+        "track_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+        },
+        "asset_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+        },
+        "start_tick": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 60963840000000
+        },
+        "duration_ticks": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 60963840000000
+        },
+        "source_in_tick": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 60963840000000
+        },
+        "kind": {
+          "const": "video"
+        },
+        "stream_index": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "motion": {
+          "$ref": "#/$defs/motion"
+        },
+        "audio_policy": {
+          "type": "string",
+          "enum": [
+            "muted",
+            "separate_linked"
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "track_id",
+        "asset_id",
+        "start_tick",
+        "duration_ticks",
+        "source_in_tick",
+        "kind",
+        "stream_index",
+        "motion",
+        "audio_policy"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

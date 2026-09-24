@@ -1,0 +1,35 @@
+{
+  "jsonrpc": "2.0",
+  "id": 4,
+  "result": {
+    "content": [
+      {
+        "type": "text",
+        "text": "{\"api_version\":\"0.2.0\",\"ok\":true,\"request_id\":\"req-demo-001\",\"project_id\":\"demo-multitrack\",\"revision\":9,\"data\":{\"job\":{\"job_id\":\"job-demo-001\",\"project_id\":\"demo-multitrack\",\"source_revision\":9,\"kind\":\"render\",\"state\":\"queued\",\"progress\":null,\"last_event_seq\":1,\"artifacts\":[],\"failure_code\":null}},\"error\":null,\"warnings\":[]}"
+      }
+    ],
+    "structuredContent": {
+      "api_version": "0.2.0",
+      "ok": true,
+      "request_id": "req-demo-001",
+      "project_id": "demo-multitrack",
+      "revision": 9,
+      "data": {
+        "job": {
+          "job_id": "job-demo-001",
+          "project_id": "demo-multitrack",
+          "source_revision": 9,
+          "kind": "render",
+          "state": "queued",
+          "progress": null,
+          "last_event_seq": 1,
+          "artifacts": [],
+          "failure_code": null
+        }
+      },
+      "error": null,
+      "warnings": []
+    },
+    "isError": false
+  }
+}

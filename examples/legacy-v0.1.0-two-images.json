@@ -1,0 +1,131 @@
+{
+  "schema_version": "0.1.0-draft",
+  "document_type": "design_example_not_executable",
+  "name": "兩張圖片：10 秒＋10 秒，重疊 1 秒",
+  "notes": [
+    "素材路徑為占位符，本包未附媒體。",
+    "這是專案格式草案，未提供可讀取此格式的 App。",
+    "位移正 x 向右、正 y 向下；單位相對輸出畫布。"
+  ],
+  "canvas": {
+    "width": 1920,
+    "height": 1080,
+    "fps": {
+      "num": 30,
+      "den": 1
+    },
+    "color_mode": "sdr_bt709"
+  },
+  "assets": [
+    {
+      "id": "image-a",
+      "kind": "image",
+      "path": "media/image-a.png"
+    },
+    {
+      "id": "image-b",
+      "kind": "image",
+      "path": "media/image-b.png"
+    }
+  ],
+  "video_track": {
+    "id": "v1",
+    "mode": "sequential_with_transition_overlaps",
+    "clips": [
+      {
+        "id": "clip-a",
+        "asset_id": "image-a",
+        "start_frame": 0,
+        "duration_frames": 300,
+        "fit": "cover",
+        "avoid_exposed_edges": true,
+        "anchor": {
+          "x": 0.5,
+          "y": 0.5
+        },
+        "motion": {
+          "interpolation": "smoothstep",
+          "coordinate_space": "output_canvas_fraction",
+          "keyframes": [
+            {
+              "frame": 0,
+              "x": -0.03,
+              "y": 0.0,
+              "scale": 1.1,
+              "opacity": 1.0
+            },
+            {
+              "frame": 299,
+              "x": 0.03,
+              "y": 0.0,
+              "scale": 1.18,
+              "opacity": 1.0
+            }
+          ]
+        }
+      },
+      {
+        "id": "clip-b",
+        "asset_id": "image-b",
+        "start_frame": 270,
+        "duration_frames": 300,
+        "fit": "cover",
+        "avoid_exposed_edges": true,
+        "anchor": {
+          "x": 0.5,
+          "y": 0.5
+        },
+        "motion": {
+          "interpolation": "smoothstep",
+          "coordinate_space": "output_canvas_fraction",
+          "keyframes": [
+            {
+              "frame": 0,
+              "x": 0.0,
+              "y": 0.03,
+              "scale": 1.14,
+              "opacity": 1.0
+            },
+            {
+              "frame": 299,
+              "x": 0.0,
+              "y": -0.03,
+              "scale": 1.14,
+              "opacity": 1.0
+            }
+          ]
+        }
+      }
+    ]
+  },
+  "transitions": [
+    {
+      "id": "transition-ab",
+      "from_clip": "clip-a",
+      "to_clip": "clip-b",
+      "kind": "cross_dissolve",
+      "start_frame": 270,
+      "duration_frames": 30,
+      "curve": "linear",
+      "semantics": "overlap"
+    }
+  ],
+  "audio_tracks": [],
+  "subtitle_document": {
+    "path": "captions.vtt",
+    "format": "webvtt",
+    "timing": "global_timeline",
+    "preserve_source_syntax": true
+  },
+  "export": {
+    "container": "mp4",
+    "video_codec": "h264",
+    "audio_codec": "aac",
+    "subtitle_mode": "none",
+    "path": "raw/base_clean.mp4"
+  },
+  "expected": {
+    "video_frames": 570,
+    "video_duration_seconds": 19
+  }
+}

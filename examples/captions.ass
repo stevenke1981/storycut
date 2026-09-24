@@ -1,0 +1,17 @@
+[Script Info]
+Title: StoryCut 字幕驗收樣本
+ScriptType: v4.00+
+PlayResX: 1920
+PlayResY: 1080
+ScaledBorderAndShadow: yes
+WrapStyle: 0
+
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+Style: Default,Microsoft JhengHei,52,&H00FFFFFF,&H000000FF,&H00000000,&H80000000,0,0,0,0,100,100,0,0,1,2,1,2,96,96,108,1
+
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+Comment: 0,0:00:00.00,0:00:00.00,Default,,0,0,0,,此為驗收樣本；請使用本機可用字型，本包未附任何字型檔。
+Dialogue: 0,0:00:01.00,0:00:04.00,Default,,0,0,0,,{\pos(960,920)\fad(150,150)}第一張圖片，緩緩向右移動。
+Dialogue: 0,0:00:10.00,0:00:18.00,Default,,0,0,0,,第二張圖片，緩緩向上移動。

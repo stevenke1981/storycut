@@ -1,0 +1,11 @@
+[package]
+name = "storycut-client"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+serde_json.workspace = true
+thiserror.workspace = true
+uuid.workspace = true
+storycut-daemon = { path = "../storycut-daemon" }

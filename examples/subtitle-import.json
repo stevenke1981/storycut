@@ -1,0 +1,9 @@
+{
+  "project_id": "demo-multitrack",
+  "expected_revision": 8,
+  "idempotency_key": "demo-subtitle-import-001",
+  "dry_run": false,
+  "path": "captions.vtt",
+  "track_id": "s1",
+  "offset_tick": 0
+}

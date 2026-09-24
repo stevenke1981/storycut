@@ -1,0 +1,53 @@
+name: Windows build and tests
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  validate:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+      - name: Install FFmpeg for real media tests
+        shell: pwsh
+        run: |
+          choco install ffmpeg-full --version=8.1.1 --yes --no-progress
+          if ($LASTEXITCODE -ne 0) { throw 'FFmpeg installation failed.' }
+          $ffmpeg = (Get-Command ffmpeg -ErrorAction Stop).Source
+          $ffprobe = (Get-Command ffprobe -ErrorAction Stop).Source
+          & $ffmpeg -version | Select-Object -First 1
+          & $ffprobe -version | Select-Object -First 1
+          $assFilter = & $ffmpeg -hide_banner -h filter=ass 2>&1 | Out-String
+          if ($assFilter -notmatch 'Render ASS subtitles') { throw 'FFmpeg libass filter is unavailable.' }
+      - name: Rust tests
+        run: cargo test --workspace --locked
+      - name: Frontend build
+        working-directory: desktop
+        run: |
+          npm ci
+          npm run build
+      - name: CLI build
+        run: cargo build --release -p storycut-cli --locked
+      - name: CLI real audio offset acceptance
+        run: python -X utf8 tests/product_acceptance/audio_offset.py
+      - name: Desktop executable
+        working-directory: desktop
+        run: npm run tauri build -- --no-bundle
+      - name: Portable archive
+        shell: pwsh
+        run: ./scripts/package-portable.ps1
+      - name: Upload portable archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: storycut-portable-windows-x64
+          path: dist/StoryCut-*-portable-windows-x64.zip
+          if-no-files-found: error

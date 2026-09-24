@@ -1,0 +1,195 @@
+{
+  "api_version": "0.2.0",
+  "status": "proposed_not_implemented",
+  "binary": "storycut",
+  "canonical_call": "storycut --json call <tool-name> --args-file <request.json>",
+  "commands": [
+    {
+      "tool": "storycut_capabilities",
+      "alias": "capabilities",
+      "input_contract": "contracts/mcp-tools.json#storycut_capabilities"
+    },
+    {
+      "tool": "storycut_project_create",
+      "alias": "project create",
+      "input_contract": "contracts/mcp-tools.json#storycut_project_create"
+    },
+    {
+      "tool": "storycut_project_open",
+      "alias": "project open",
+      "input_contract": "contracts/mcp-tools.json#storycut_project_open"
+    },
+    {
+      "tool": "storycut_project_get",
+      "alias": "project get",
+      "input_contract": "contracts/mcp-tools.json#storycut_project_get"
+    },
+    {
+      "tool": "storycut_project_save",
+      "alias": "project save",
+      "input_contract": "contracts/mcp-tools.json#storycut_project_save"
+    },
+    {
+      "tool": "storycut_project_validate",
+      "alias": "project validate",
+      "input_contract": "contracts/mcp-tools.json#storycut_project_validate"
+    },
+    {
+      "tool": "storycut_media_import",
+      "alias": "media import",
+      "input_contract": "contracts/mcp-tools.json#storycut_media_import"
+    },
+    {
+      "tool": "storycut_media_list",
+      "alias": "media list",
+      "input_contract": "contracts/mcp-tools.json#storycut_media_list"
+    },
+    {
+      "tool": "storycut_timeline_get",
+      "alias": "timeline get",
+      "input_contract": "contracts/mcp-tools.json#storycut_timeline_get"
+    },
+    {
+      "tool": "storycut_timeline_apply",
+      "alias": "timeline apply",
+      "input_contract": "contracts/mcp-tools.json#storycut_timeline_apply"
+    },
+    {
+      "tool": "storycut_track_add",
+      "alias": "track add",
+      "input_contract": "contracts/mcp-tools.json#storycut_track_add"
+    },
+    {
+      "tool": "storycut_track_update",
+      "alias": "track update",
+      "input_contract": "contracts/mcp-tools.json#storycut_track_update"
+    },
+    {
+      "tool": "storycut_clip_add",
+      "alias": "clip add",
+      "input_contract": "contracts/mcp-tools.json#storycut_clip_add"
+    },
+    {
+      "tool": "storycut_clip_move",
+      "alias": "clip move",
+      "input_contract": "contracts/mcp-tools.json#storycut_clip_move"
+    },
+    {
+      "tool": "storycut_clip_trim",
+      "alias": "clip trim",
+      "input_contract": "contracts/mcp-tools.json#storycut_clip_trim"
+    },
+    {
+      "tool": "storycut_clip_split",
+      "alias": "clip split",
+      "input_contract": "contracts/mcp-tools.json#storycut_clip_split"
+    },
+    {
+      "tool": "storycut_clip_remove",
+      "alias": "clip remove",
+      "input_contract": "contracts/mcp-tools.json#storycut_clip_remove"
+    },
+    {
+      "tool": "storycut_motion_set",
+      "alias": "motion set",
+      "input_contract": "contracts/mcp-tools.json#storycut_motion_set"
+    },
+    {
+      "tool": "storycut_audio_set",
+      "alias": "audio set",
+      "input_contract": "contracts/mcp-tools.json#storycut_audio_set"
+    },
+    {
+      "tool": "storycut_transition_set",
+      "alias": "transition set",
+      "input_contract": "contracts/mcp-tools.json#storycut_transition_set"
+    },
+    {
+      "tool": "storycut_link_create",
+      "alias": "link create",
+      "input_contract": "contracts/mcp-tools.json#storycut_link_create"
+    },
+    {
+      "tool": "storycut_subtitle_import",
+      "alias": "subtitle import",
+      "input_contract": "contracts/mcp-tools.json#storycut_subtitle_import"
+    },
+    {
+      "tool": "storycut_subtitle_update",
+      "alias": "subtitle update",
+      "input_contract": "contracts/mcp-tools.json#storycut_subtitle_update"
+    },
+    {
+      "tool": "storycut_subtitle_export",
+      "alias": "subtitle export",
+      "input_contract": "contracts/mcp-tools.json#storycut_subtitle_export"
+    },
+    {
+      "tool": "storycut_history_undo",
+      "alias": "history undo",
+      "input_contract": "contracts/mcp-tools.json#storycut_history_undo"
+    },
+    {
+      "tool": "storycut_history_redo",
+      "alias": "history redo",
+      "input_contract": "contracts/mcp-tools.json#storycut_history_redo"
+    },
+    {
+      "tool": "storycut_preview_frame",
+      "alias": "preview frame",
+      "input_contract": "contracts/mcp-tools.json#storycut_preview_frame"
+    },
+    {
+      "tool": "storycut_preview_range",
+      "alias": "preview range",
+      "input_contract": "contracts/mcp-tools.json#storycut_preview_range"
+    },
+    {
+      "tool": "storycut_render_start",
+      "alias": "render start",
+      "input_contract": "contracts/mcp-tools.json#storycut_render_start"
+    },
+    {
+      "tool": "storycut_job_get",
+      "alias": "job get",
+      "input_contract": "contracts/mcp-tools.json#storycut_job_get"
+    },
+    {
+      "tool": "storycut_job_list",
+      "alias": "job list",
+      "input_contract": "contracts/mcp-tools.json#storycut_job_list"
+    },
+    {
+      "tool": "storycut_job_cancel",
+      "alias": "job cancel",
+      "input_contract": "contracts/mcp-tools.json#storycut_job_cancel"
+    },
+    {
+      "tool": "storycut_job_events",
+      "alias": "job events",
+      "input_contract": "contracts/mcp-tools.json#storycut_job_events"
+    }
+  ],
+  "server_launch": [
+    "storycut",
+    "mcp",
+    "--stdio",
+    "--workspace",
+    "<absolute-workspace>"
+  ],
+  "event_follow": [
+    "storycut",
+    "--jsonl",
+    "job",
+    "events",
+    "--job-id",
+    "<job-id>",
+    "--follow"
+  ],
+  "global_flags": [
+    "--json",
+    "--jsonl",
+    "--workspace"
+  ],
+  "note": "JSON/JSONL 互斥。alias 模式 --request FILE 等同 canonical call --args-file FILE。便利欄位 flags 見 docs/CLI.md。"
+}

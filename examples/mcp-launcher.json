@@ -1,0 +1,10 @@
+{
+  "transport": "stdio",
+  "command": "C:\\Program Files\\StoryCut\\storycut.exe",
+  "args": [
+    "mcp",
+    "--stdio",
+    "--workspace",
+    "D:\\StoryCutWorkspace"
+  ]
+}

@@ -1,0 +1,107 @@
+{
+  "api_version": "0.2.0",
+  "codes": [
+    {
+      "code": "INVALID_ARGUMENT",
+      "cli_exit": 2,
+      "retryable_after_action": false,
+      "meaning": "參數格式或數值錯誤"
+    },
+    {
+      "code": "NOT_FOUND",
+      "cli_exit": 3,
+      "retryable_after_action": false,
+      "meaning": "專案、素材、片段或工作不存在"
+    },
+    {
+      "code": "REVISION_CONFLICT",
+      "cli_exit": 4,
+      "retryable_after_action": true,
+      "meaning": "重讀版本與變更後重新規劃，不可盲目重試"
+    },
+    {
+      "code": "LOCKED_TRACK",
+      "cli_exit": 4,
+      "retryable_after_action": false,
+      "meaning": "交易涉及鎖定軌；整批不寫入"
+    },
+    {
+      "code": "IDEMPOTENCY_CONFLICT",
+      "cli_exit": 4,
+      "retryable_after_action": false,
+      "meaning": "相同 key 的 payload 不同"
+    },
+    {
+      "code": "DEPENDENCY_CONFLICT",
+      "cli_exit": 4,
+      "retryable_after_action": false,
+      "meaning": "連結／轉場／非空軌相依關係衝突"
+    },
+    {
+      "code": "PATH_DENIED",
+      "cli_exit": 5,
+      "retryable_after_action": false,
+      "meaning": "超出允許工作區或輸出位置"
+    },
+    {
+      "code": "OVERWRITE_DENIED",
+      "cli_exit": 5,
+      "retryable_after_action": false,
+      "meaning": "沒有授權覆蓋既有輸出"
+    },
+    {
+      "code": "MEDIA_OFFLINE",
+      "cli_exit": 6,
+      "retryable_after_action": false,
+      "meaning": "缺少素材或素材未探測"
+    },
+    {
+      "code": "MEDIA_CHANGED",
+      "cli_exit": 6,
+      "retryable_after_action": false,
+      "meaning": "來源指紋與快照不符"
+    },
+    {
+      "code": "UNSUPPORTED_FEATURE",
+      "cli_exit": 6,
+      "retryable_after_action": false,
+      "meaning": "能力未實作或依賴不存在"
+    },
+    {
+      "code": "UNSUPPORTED_PROTOCOL",
+      "cli_exit": 6,
+      "retryable_after_action": false,
+      "meaning": "MCP 協商無共同版本"
+    },
+    {
+      "code": "RENDER_FAILED",
+      "cli_exit": 7,
+      "retryable_after_action": false,
+      "meaning": "渲染失敗；查看安全化的工作錯誤"
+    },
+    {
+      "code": "DISK_FULL",
+      "cli_exit": 7,
+      "retryable_after_action": false,
+      "meaning": "輸出或暫存磁碟不足"
+    },
+    {
+      "code": "CANCELLED",
+      "cli_exit": 8,
+      "retryable_after_action": false,
+      "meaning": "已確認工作或等待操作被取消"
+    },
+    {
+      "code": "JOB_INTERRUPTED",
+      "cli_exit": 7,
+      "retryable_after_action": true,
+      "meaning": "daemon/worker 中斷；明確重啟新工作"
+    },
+    {
+      "code": "INTERNAL_ERROR",
+      "cli_exit": 10,
+      "retryable_after_action": false,
+      "meaning": "非預期錯誤，回傳關聯 ID 不洩漏機密"
+    }
+  ]
+}

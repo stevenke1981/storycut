@@ -1,0 +1,141 @@
+{
+  "schema_version": "0.2.0-draft",
+  "project_id": "demo-multitrack",
+  "revision": 7,
+  "name": "多軌：兩圖＋影片＋疊圖＋旁白配樂音效，28 秒",
+  "timebase": 705600000,
+  "canvas": {
+    "width": 1920,
+    "height": 1080,
+    "fps": {
+      "num": 30,
+      "den": 1
+    },
+    "background": "#000000",
+    "color_mode": "sdr_bt709"
+  },
+  "audio_sample_rate": 48000,
+  "notes": [
+    "規格測試資料，不是已渲染或已探測的專案；media/* 檔案不包含在 ZIP。",
+    "unprobed 素材資料為示例宣告，不能當作 ffprobe 實測。"
+  ],
+  "assets": [
+    {
+      "id": "image-a",
+      "kind": "image",
+      "path": "media/image-a.png",
+      "probe_status": "unprobed",
+      "duration_ticks": null,
+      "sha256": null,
+      "streams": []
+    },
+    {
+      "id": "image-b",
+      "kind": "image",
+      "path": "media/image-b.png",
+      "probe_status": "unprobed",
+      "duration_ticks": null,
+      "sha256": null,
+      "streams": []
+    },
+    {
+      "id": "video-c",
+      "kind": "video",
+      "path": "media/video-c.mp4",
+      "probe_status": "unprobed",
+      "duration_ticks": 14112000000,
+      "sha256": null,
+      "streams": [
+        {
+          "index": 0,
+          "kind": "video",
+          "time_base": {
+            "num": 1,
+            "den": 90000
+          },
+          "sample_rate": null
+        },
+        {
+          "index": 1,
+          "kind": "audio",
+          "time_base": {
+            "num": 1,
+            "den": 48000
+          },
+          "sample_rate": 48000
+        }
+      ]
+    },
+    {
+      "id": "logo",
+      "kind": "image",
+      "path": "media/logo.png",
+      "probe_status": "unprobed",
+      "duration_ticks": null,
+      "sha256": null,
+      "streams": []
+    },
+    {
+      "id": "narration",
+      "kind": "audio",
+      "path": "media/narration.wav",
+      "probe_status": "unprobed",
+      "duration_ticks": 19756800000,
+      "sha256": null,
+      "streams": [
+        {
+          "index": 0,
+          "kind": "audio",
+          "time_base": {
+            "num": 1,
+            "den": 48000
+          },
+          "sample_rate": 48000
+        }
+      ]
+    },
+    {
+      "id": "music",
+      "kind": "audio",
+      "path": "media/music.wav",
+      "probe_status": "unprobed",
+      "duration_ticks": 42336000000,
+      "sha256": null,
+      "streams": [
+        {
+          "index": 0,
+          "kind": "audio",
+          "time_base": {
+            "num": 1,
+            "den": 48000
+          },
+          "sample_rate": 48000
+        }
+      ]
+    },
+    {
+      "id": "sfx",
+      "kind": "audio",
+      "path": "media/sfx.wav",
+      "probe_status": "unprobed",
+      "duration_ticks": 705600000,
+      "sha256": null,
+      "streams": [
+        {
+          "index": 0,
+          "kind": "audio",
+          "time_base": {
+            "num": 1,
+            "den": 48000
+          },
+          "sample_rate": 48000
+        }
+      ]
+    }
+  ],
+  "tracks": [],
+  "clips": [],
+  "transitions": [],
+  "links": [],
+  "subtitles": []
+}

@@ -1,0 +1,436 @@
+[
+  {
+    "op": "track.add",
+    "track": {
+      "id": "v1",
+      "kind": "video",
+      "name": "主畫面：圖片與影片",
+      "locked": false,
+      "enabled": true,
+      "muted": false,
+      "solo": false,
+      "gain_db": 0
+    }
+  },
+  {
+    "op": "track.add",
+    "track": {
+      "id": "v2",
+      "kind": "video",
+      "name": "影片疊加",
+      "locked": false,
+      "enabled": true,
+      "muted": false,
+      "solo": false,
+      "gain_db": 0
+    }
+  },
+  {
+    "op": "track.add",
+    "track": {
+      "id": "i1",
+      "kind": "image",
+      "name": "透明圖片／標誌",
+      "locked": false,
+      "enabled": true,
+      "muted": false,
+      "solo": false,
+      "gain_db": 0
+    }
+  },
+  {
+    "op": "track.add",
+    "track": {
+      "id": "a1",
+      "kind": "audio",
+      "name": "影片原聲",
+      "locked": false,
+      "enabled": true,
+      "muted": false,
+      "solo": false,
+      "gain_db": 0
+    }
+  },
+  {
+    "op": "track.add",
+    "track": {
+      "id": "a2",
+      "kind": "audio",
+      "name": "旁白",
+      "locked": false,
+      "enabled": true,
+      "muted": false,
+      "solo": false,
+      "gain_db": 0
+    }
+  },
+  {
+    "op": "track.add",
+    "track": {
+      "id": "a3",
+      "kind": "audio",
+      "name": "背景配樂",
+      "locked": false,
+      "enabled": true,
+      "muted": false,
+      "solo": false,
+      "gain_db": 0
+    }
+  },
+  {
+    "op": "track.add",
+    "track": {
+      "id": "a4",
+      "kind": "audio",
+      "name": "音效",
+      "locked": false,
+      "enabled": true,
+      "muted": false,
+      "solo": false,
+      "gain_db": 0
+    }
+  },
+  {
+    "op": "track.add",
+    "track": {
+      "id": "s1",
+      "kind": "subtitle",
+      "name": "字幕",
+      "locked": false,
+      "enabled": true,
+      "muted": false,
+      "solo": false,
+      "gain_db": 0
+    }
+  },
+  {
+    "op": "clip.add",
+    "clip": {
+      "id": "clip-a",
+      "track_id": "v1",
+      "asset_id": "image-a",
+      "kind": "image",
+      "start_tick": 0,
+      "duration_ticks": 7056000000,
+      "source_in_tick": 0,
+      "motion": {
+        "domain_duration_ticks": 7056000000,
+        "sample_offset_tick": 0,
+        "fit": "cover",
+        "avoid_exposed_edges": true,
+        "anchor": {
+          "x": 0.5,
+          "y": 0.5
+        },
+        "interpolation": "smoothstep",
+        "keyframes": [
+          {
+            "tick": 0,
+            "x": -0.03,
+            "y": 0,
+            "scale": 1.1,
+            "opacity": 1
+          },
+          {
+            "tick": 7032480000,
+            "x": 0.03,
+            "y": 0,
+            "scale": 1.18,
+            "opacity": 1
+          }
+        ]
+      }
+    }
+  },
+  {
+    "op": "clip.add",
+    "clip": {
+      "id": "clip-b",
+      "track_id": "v1",
+      "asset_id": "image-b",
+      "kind": "image",
+      "start_tick": 6350400000,
+      "duration_ticks": 7056000000,
+      "source_in_tick": 0,
+      "motion": {
+        "domain_duration_ticks": 7056000000,
+        "sample_offset_tick": 0,
+        "fit": "cover",
+        "avoid_exposed_edges": true,
+        "anchor": {
+          "x": 0.5,
+          "y": 0.5
+        },
+        "interpolation": "smoothstep",
+        "keyframes": [
+          {
+            "tick": 0,
+            "x": 0,
+            "y": 0.03,
+            "scale": 1.14,
+            "opacity": 1
+          },
+          {
+            "tick": 7032480000,
+            "x": 0,
+            "y": -0.03,
+            "scale": 1.14,
+            "opacity": 1
+          }
+        ]
+      }
+    }
+  },
+  {
+    "op": "clip.add",
+    "clip": {
+      "id": "clip-c",
+      "track_id": "v1",
+      "asset_id": "video-c",
+      "kind": "video",
+      "start_tick": 12700800000,
+      "duration_ticks": 7056000000,
+      "source_in_tick": 1411200000,
+      "stream_index": 0,
+      "audio_policy": "separate_linked",
+      "motion": {
+        "domain_duration_ticks": 7056000000,
+        "sample_offset_tick": 0,
+        "fit": "cover",
+        "avoid_exposed_edges": true,
+        "anchor": {
+          "x": 0.5,
+          "y": 0.5
+        },
+        "interpolation": "smoothstep",
+        "keyframes": [
+          {
+            "tick": 0,
+            "x": 0,
+            "y": 0,
+            "scale": 1,
+            "opacity": 1
+          },
+          {
+            "tick": 7032480000,
+            "x": 0,
+            "y": 0,
+            "scale": 1,
+            "opacity": 1
+          }
+        ]
+      }
+    }
+  },
+  {
+    "op": "clip.add",
+    "clip": {
+      "id": "broll",
+      "track_id": "v2",
+      "asset_id": "video-c",
+      "kind": "video",
+      "start_tick": 14112000000,
+      "duration_ticks": 2822400000,
+      "source_in_tick": 8467200000,
+      "stream_index": 0,
+      "audio_policy": "muted",
+      "motion": {
+        "domain_duration_ticks": 2822400000,
+        "sample_offset_tick": 0,
+        "fit": "contain",
+        "avoid_exposed_edges": false,
+        "anchor": {
+          "x": 0.5,
+          "y": 0.5
+        },
+        "interpolation": "smoothstep",
+        "keyframes": [
+          {
+            "tick": 0,
+            "x": 0.28,
+            "y": 0.25,
+            "scale": 0.32,
+            "opacity": 1
+          },
+          {
+            "tick": 2798880000,
+            "x": 0.28,
+            "y": 0.25,
+            "scale": 0.32,
+            "opacity": 1
+          }
+        ]
+      }
+    }
+  },
+  {
+    "op": "clip.add",
+    "clip": {
+      "id": "logo-clip",
+      "track_id": "i1",
+      "asset_id": "logo",
+      "kind": "image",
+      "start_tick": 1411200000,
+      "duration_ticks": 4233600000,
+      "source_in_tick": 0,
+      "motion": {
+        "domain_duration_ticks": 4233600000,
+        "sample_offset_tick": 0,
+        "fit": "contain",
+        "avoid_exposed_edges": false,
+        "anchor": {
+          "x": 0.5,
+          "y": 0.5
+        },
+        "interpolation": "smoothstep",
+        "keyframes": [
+          {
+            "tick": 0,
+            "x": 0.32,
+            "y": -0.32,
+            "scale": 0.18,
+            "opacity": 1
+          },
+          {
+            "tick": 4210080000,
+            "x": 0.32,
+            "y": -0.32,
+            "scale": 0.18,
+            "opacity": 1
+          }
+        ]
+      }
+    }
+  },
+  {
+    "op": "clip.add",
+    "clip": {
+      "id": "video-c-audio",
+      "track_id": "a1",
+      "asset_id": "video-c",
+      "kind": "audio",
+      "start_tick": 12700800000,
+      "duration_ticks": 7056000000,
+      "source_in_tick": 1411200000,
+      "stream_index": 1,
+      "audio": {
+        "domain_duration_ticks": 7056000000,
+        "sample_offset_tick": 0,
+        "gain_db": 0,
+        "pan": 0,
+        "muted": false,
+        "fade_in_ticks": 705600000,
+        "fade_out_ticks": 0,
+        "fade_curve": "linear_amplitude"
+      }
+    }
+  },
+  {
+    "op": "clip.add",
+    "clip": {
+      "id": "voice",
+      "track_id": "a2",
+      "asset_id": "narration",
+      "kind": "audio",
+      "start_tick": 0,
+      "duration_ticks": 19756800000,
+      "source_in_tick": 0,
+      "stream_index": 0,
+      "audio": {
+        "domain_duration_ticks": 19756800000,
+        "sample_offset_tick": 0,
+        "gain_db": 0,
+        "pan": 0,
+        "muted": false,
+        "fade_in_ticks": 0,
+        "fade_out_ticks": 0,
+        "fade_curve": "linear_amplitude"
+      }
+    }
+  },
+  {
+    "op": "clip.add",
+    "clip": {
+      "id": "bgm",
+      "track_id": "a3",
+      "asset_id": "music",
+      "kind": "audio",
+      "start_tick": 0,
+      "duration_ticks": 19756800000,
+      "source_in_tick": 0,
+      "stream_index": 0,
+      "audio": {
+        "domain_duration_ticks": 19756800000,
+        "sample_offset_tick": 0,
+        "gain_db": -18,
+        "pan": 0,
+        "muted": false,
+        "fade_in_ticks": 705600000,
+        "fade_out_ticks": 1411200000,
+        "fade_curve": "linear_amplitude"
+      }
+    }
+  },
+  {
+    "op": "clip.add",
+    "clip": {
+      "id": "sfx-clip",
+      "track_id": "a4",
+      "asset_id": "sfx",
+      "kind": "audio",
+      "start_tick": 6350400000,
+      "duration_ticks": 705600000,
+      "source_in_tick": 0,
+      "stream_index": 0,
+      "audio": {
+        "domain_duration_ticks": 705600000,
+        "sample_offset_tick": 0,
+        "gain_db": -6,
+        "pan": 0,
+        "muted": false,
+        "fade_in_ticks": 0,
+        "fade_out_ticks": 0,
+        "fade_curve": "linear_amplitude"
+      }
+    }
+  },
+  {
+    "op": "transition.set",
+    "transition": {
+      "id": "xf-ab",
+      "track_id": "v1",
+      "from_clip_id": "clip-a",
+      "to_clip_id": "clip-b",
+      "start_tick": 6350400000,
+      "duration_ticks": 705600000,
+      "kind": "cross_dissolve",
+      "curve": "linear",
+      "audio_policy": "independent"
+    }
+  },
+  {
+    "op": "transition.set",
+    "transition": {
+      "id": "xf-bc",
+      "track_id": "v1",
+      "from_clip_id": "clip-b",
+      "to_clip_id": "clip-c",
+      "start_tick": 12700800000,
+      "duration_ticks": 705600000,
+      "kind": "cross_dissolve",
+      "curve": "linear",
+      "audio_policy": "independent"
+    }
+  },
+  {
+    "op": "link.create",
+    "link": {
+      "id": "link-c",
+      "kind": "av_sync",
+      "clip_ids": [
+        "clip-c",
+        "video-c-audio"
+      ]
+    }
+  }
+]

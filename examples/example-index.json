@@ -1,0 +1,34 @@
+{
+  "kind": "specification_fixtures_not_runtime_logs",
+  "timebase": 705600000,
+  "expected_durations": {
+    "two-images.storycut.json": {
+      "ticks": 13406400000,
+      "frames": 570,
+      "seconds": 19
+    },
+    "multitrack.storycut.json": {
+      "ticks": 19756800000,
+      "frames": 840,
+      "seconds": 28
+    },
+    "after-apply.storycut.json": {
+      "ticks": 19756800000,
+      "frames": 840,
+      "seconds": 28
+    }
+  },
+  "input_examples": {
+    "timeline-apply.dry-run.json": "storycut_timeline_apply",
+    "timeline-apply.commit.json": "storycut_timeline_apply",
+    "subtitle-import.json": "storycut_subtitle_import",
+    "render-clean.json": "storycut_render_start",
+    "render-subtitles.json": "storycut_render_start"
+  },
+  "output_examples": {
+    "render-start.response.json": "storycut_render_start",
+    "revision-conflict.response.json": "storycut_timeline_apply"
+  },
+  "tool_count": 33,
+  "operation_count": 19
+}
