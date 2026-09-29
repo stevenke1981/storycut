@@ -1097,10 +1097,11 @@ pub fn dispatch(workspace: &Path, tool: &str, args: Value) -> Result<Value, Comm
                         "artifacts":[{"artifact_id":format!("artifact-{job_id}"),"relative_path":relative.to_string_lossy(),
                             "mime_type":"video/mp4","sha256":report.output_sha256,"size_bytes":metadata.len()}]
                     });
-                    write_ready_job(&jobs, &job_id, &ready_job)?;
+                    let meta = report.master_loudness.as_ref().map(|l| json!({"master_loudness": l}));
+                    write_ready_job_with_meta(&jobs, &job_id, &ready_job, meta.as_ref())?;
                     let completed = finalize_ready_job(workspace, &jobs, &job_id)?;
                     let mut data = json!({"job":completed["job"]});
-                    if let Some(loudness) = &report.master_loudness {
+                    if let Some(loudness) = completed.get("master_loudness").filter(|v| !v.is_null()) {
                         data["master_loudness"] = loudness.clone();
                     }
                     let mut response = success(Some(id), Some(revision), data);
@@ -1148,10 +1149,14 @@ pub fn dispatch(workspace: &Path, tool: &str, args: Value) -> Result<Value, Comm
                     "Job record is malformed",
                 ));
             }
+            let mut data = json!({"job": job});
+            if let Some(loudness) = record.get("master_loudness").filter(|v| !v.is_null()) {
+                data["master_loudness"] = loudness.clone();
+            }
             Ok(success(
                 job["project_id"].as_str(),
                 job["source_revision"].as_u64(),
-                json!({"job":job}),
+                data,
             ))
         }
         _ => Err(CommandError::new(
@@ -2845,16 +2850,33 @@ fn existing_job_response(
         ));
     }
     let record = completed_or_interrupted_job(workspace, jobs, job_id)?;
-    Ok(Some(success(
-        Some(project_id),
-        Some(revision),
-        json!({"job":record["job"]}),
-    )))
+    let mut data = json!({"job": record["job"]});
+    if let Some(loudness) = record.get("master_loudness").filter(|v| !v.is_null()) {
+        data["master_loudness"] = loudness.clone();
+    }
+    Ok(Some(success(Some(project_id), Some(revision), data)))
 }
 
 fn write_ready_job(jobs: &Path, job_id: &str, job: &Value) -> Result<(), CommandError> {
+    write_ready_job_with_meta(jobs, job_id, job, None)
+}
+
+fn write_ready_job_with_meta(
+    jobs: &Path,
+    job_id: &str,
+    job: &Value,
+    meta: Option<&Value>,
+) -> Result<(), CommandError> {
     let path = jobs.join(format!("{job_id}.ready.json"));
-    write_json_new(&path, &json!({"job":job}))
+    let mut record = json!({"job": job});
+    if let Some(meta) = meta {
+        if let (Some(obj), Some(meta_obj)) = (record.as_object_mut(), meta.as_object()) {
+            for (k, v) in meta_obj {
+                obj.insert(k.clone(), v.clone());
+            }
+        }
+    }
+    write_json_new(&path, &record)
 }
 
 fn sha256_file(path: &Path) -> Result<(String, u64), CommandError> {
@@ -2968,7 +2990,18 @@ fn finalize_ready_job(workspace: &Path, jobs: &Path, job_id: &str) -> Result<Val
         }
     }
     let result = jobs.join(format!("{job_id}.result.json"));
-    let record = json!({"job":job});
+    // Build the result record starting with {"job": job}, then merge any extra
+    // top-level fields from the ready record (e.g. master_loudness).
+    let mut record = json!({"job": job});
+    if let (Some(record_obj), Some(ready_obj)) =
+        (record.as_object_mut(), ready.as_object())
+    {
+        for (k, v) in ready_obj {
+            if k != "job" {
+                record_obj.entry(k.clone()).or_insert_with(|| v.clone());
+            }
+        }
+    }
     if !result.exists() {
         write_json_new(&result, &record)?;
     }
@@ -3670,6 +3703,107 @@ mod tests {
                 .count(),
             1,
             "atomic publication should clean its temporary file"
+        );
+    }
+
+    #[test]
+    fn render_loudness_report_survives_replay_and_job_get() {
+        // NL-02: master_loudness must survive write_ready_job → finalize_ready_job →
+        // result.json → completed_or_interrupted_job / job_get replay.
+        // No FFmpeg required; we wire the job files manually.
+        let temporary = tempfile::tempdir().unwrap();
+        let workspace = temporary.path();
+        let jobs = private_dir(workspace, "jobs", true).unwrap();
+        let output = workspace.join("out.mp4");
+        let stage = jobs.join("nl02test.stage.mp4");
+        let bytes = b"fake render output";
+        let digest = hex_sha256(bytes);
+        fs::write(&stage, bytes).unwrap();
+
+        // Write initial.json (needed by finalize_ready_job to resolve output path)
+        fs::write(
+            jobs.join("nl02test.initial.json"),
+            serde_json::to_vec(&json!({
+                "request": {"path": output.to_string_lossy()},
+                "job": {"kind": "render", "state": "running"}
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+
+        // Simulate the render_start handler writing ready.json with loudness
+        let ready_job = json!({
+            "job_id": "nl02test",
+            "project_id": "project-nl02",
+            "source_revision": 1,
+            "kind": "render",
+            "state": "succeeded",
+            "progress": 1.0,
+            "last_event_seq": 2,
+            "failure_code": null,
+            "artifacts": [{
+                "artifact_id": "artifact-nl02test",
+                "relative_path": "out.mp4",
+                "mime_type": "video/mp4",
+                "sha256": digest,
+                "size_bytes": bytes.len()
+            }]
+        });
+        let loudness_value = json!({
+            "integrated_lufs": -16.0,
+            "true_peak_dbtp": -1.0,
+            "lra_lu": 7.0,
+            "method": "ebur128"
+        });
+        let meta = json!({"master_loudness": loudness_value});
+        write_ready_job_with_meta(&jobs, "nl02test", &ready_job, Some(&meta)).unwrap();
+
+        // Check ready.json has master_loudness at top level
+        let ready_path = jobs.join("nl02test.ready.json");
+        let ready_record = read_job_file(&ready_path).unwrap();
+        assert_eq!(
+            ready_record["master_loudness"]["integrated_lufs"],
+            json!(-16.0),
+            "ready.json must contain master_loudness"
+        );
+
+        // finalize_ready_job should write result.json with master_loudness
+        let finalized = finalize_ready_job(workspace, &jobs, "nl02test").unwrap();
+        assert_eq!(finalized["job"]["state"], "succeeded");
+        assert_eq!(
+            finalized["master_loudness"]["integrated_lufs"],
+            json!(-16.0),
+            "finalize_ready_job return value must include master_loudness"
+        );
+
+        // result.json on disk must also contain master_loudness
+        let result_path = jobs.join("nl02test.result.json");
+        let result_record = read_job_file(&result_path).unwrap();
+        assert_eq!(
+            result_record["master_loudness"]["integrated_lufs"],
+            json!(-16.0),
+            "result.json must persist master_loudness"
+        );
+
+        // completed_or_interrupted_job reads result.json → should include master_loudness
+        let recovered = completed_or_interrupted_job(workspace, &jobs, "nl02test").unwrap();
+        assert_eq!(recovered["job"]["state"], "succeeded");
+        assert_eq!(
+            recovered["master_loudness"]["integrated_lufs"],
+            json!(-16.0),
+            "completed_or_interrupted_job must return master_loudness from result.json"
+        );
+
+        // Simulate what job_get does: extract master_loudness from record
+        let job = recovered["job"].clone();
+        let mut data = json!({"job": job});
+        if let Some(loudness) = recovered.get("master_loudness").filter(|v| !v.is_null()) {
+            data["master_loudness"] = loudness.clone();
+        }
+        assert_eq!(
+            data["master_loudness"]["integrated_lufs"],
+            json!(-16.0),
+            "job_get simulation must expose master_loudness in data"
         );
     }
 }

@@ -17,6 +17,19 @@
 - 測試：在 `crates/storycut-mcp/tests/protocol.rs` 新增 `narration_assemble_output_matches_schema`：正向範例以假 dispatch 回傳含所有必填欄位的 response，確認 `structuredContent.data` 的各欄位存在且型別正確；負向範例確認缺少 `narration_end_tick` 的 fixture 確實沒有該欄位。
 - 驗收：`cargo test -p storycut-mcp protocol` 新測試通過；`python -X utf8 tools/validate_spec.py` 通過。
 
+## 2026-09-30：NL-02 render master_loudness 報告遺失修正
+
+- 問題：`storycut_render_start` 的 `render_result` 成功分支把 `report.master_loudness` 只放進即時回傳的 `data`，但 `write_ready_job` 寫入 `ready.json` 時只存 `{"job": ready_job}`，`finalize_ready_job` 再把 ready.json 複製到 `result.json` 時同樣只存 `{"job": job}`，導致響度報告完全丟失。重播或 `job_get` 查詢時回傳的 `data` 不含 `master_loudness`。
+- 修正：
+  1. 新增 `write_ready_job_with_meta`（原 `write_ready_job` 改為呼叫它並傳 `None`），將 metadata 展開到 ready.json 頂層（與 `job` 並列）。
+  2. `render_start` 改用 `write_ready_job_with_meta` 傳入 `{"master_loudness": ...}` meta。
+  3. `finalize_ready_job` 將 ready.json 中所有非 `job` 的頂層欄位合併到 result.json，並在回傳值也包含這些欄位。
+  4. `job_get`、`existing_job_response` 從 record 讀取 `master_loudness` 並放進 `data`，與首次 `render_start` 回傳一致。
+  5. `contracts/mcp-tools.json` 的 `storycut_render_start` 及 `storycut_job_get` 兩個工具的 `outputSchema`（頂層 `data` anyOf 及 `allOf.then.data`）加入 `master_loudness` optional 欄位。
+- 測試：新增 `render_loudness_report_survives_replay_and_job_get`（無需 FFmpeg）：手動建立 ready.json→result.json→completed_or_interrupted_job，逐層驗證 `master_loudness` 不丟失；模擬 `job_get` 讀取邏輯也確認可拿到響度資料。
+- 驗收：`cargo test --workspace --offline` 全過；`python -X utf8 tools/validate_spec.py` 通過。
+
+
 ## 2026-09-27：夜燈說書工作流程
 
 本節是本次新增功能的驗收；下方 2026-09-24 紀錄保留為既有基線。
