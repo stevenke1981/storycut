@@ -12964,33 +12964,12 @@
                       "maxLength": 80,
                       "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
                     },
-                    "minItems": 0,
-                    "maxItems": 100000
-                  },
-                  "removed_ids": {
-                    "type": "array",
-                    "items": {
-                      "type": "string",
-                      "minLength": 1,
-                      "maxLength": 80,
-                      "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
-                    },
-                    "minItems": 0,
                     "maxItems": 100000
                   },
                   "duration_ticks": {
                     "type": "integer",
                     "minimum": 0,
                     "maximum": 60963840000000
-                  },
-                  "diff": {
-                    "type": "array",
-                    "items": {
-                      "type": "string",
-                      "maxLength": 65536
-                    },
-                    "minItems": 0,
-                    "maxItems": 1000
                   },
                   "created_track_ids": {
                     "type": "array",
@@ -13000,19 +12979,7 @@
                       "maxLength": 80,
                       "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
                     },
-                    "minItems": 0,
-                    "maxItems": 100000
-                  },
-                  "created_clip_ids": {
-                    "type": "array",
-                    "items": {
-                      "type": "string",
-                      "minLength": 1,
-                      "maxLength": 80,
-                      "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
-                    },
-                    "minItems": 0,
-                    "maxItems": 100000
+                    "maxItems": 4
                   },
                   "visual_track_id": {
                     "type": "string",
@@ -13020,79 +12987,78 @@
                     "maxLength": 80,
                     "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
                   },
-                  "start_tick": {
+                  "narration_track_id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 80,
+                    "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+                  },
+                  "music_track_id": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 80,
+                        "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "overlay_track_id": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 80,
+                        "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "frame_ticks": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 60963840000000
+                  },
+                  "dissolve_window_ticks": {
                     "type": "integer",
                     "minimum": 0,
                     "maximum": 60963840000000
                   },
-                  "visual_duration_ticks": {
+                  "lead_in_ticks": {
                     "type": "integer",
                     "minimum": 0,
                     "maximum": 60963840000000
                   },
-                  "audio_duration_ticks": {
+                  "narration_end_tick": {
                     "type": "integer",
                     "minimum": 0,
                     "maximum": 60963840000000
                   },
-                  "track_roles": {
+                  "total_duration_ticks": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 60963840000000
+                  },
+                  "segment_offsets": {
                     "type": "array",
                     "items": {
                       "type": "object",
                       "properties": {
-                        "role": {
-                          "type": "string"
+                        "index": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 399
                         },
-                        "track_id": {
+                        "asset_id": {
                           "type": "string",
                           "minLength": 1,
                           "maxLength": 80,
                           "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
-                        },
-                        "name": {
-                          "type": "string"
-                        }
-                      },
-                      "required": [
-                        "role",
-                        "track_id",
-                        "name"
-                      ],
-                      "additionalProperties": false
-                    },
-                    "maxItems": 100
-                  },
-                  "transition": {
-                    "type": "object",
-                    "properties": {
-                      "kind": {
-                        "type": "string",
-                        "enum": [
-                          "cut",
-                          "cross_dissolve"
-                        ]
-                      },
-                      "duration_ticks": {
-                        "type": "integer",
-                        "minimum": 0,
-                        "maximum": 60963840000000
-                      }
-                    },
-                    "required": [
-                      "kind",
-                      "duration_ticks"
-                    ],
-                    "additionalProperties": false
-                  },
-                  "warnings": {
-                    "type": "array",
-                    "items": {
-                      "type": "object",
-                      "properties": {
-                        "code": {
-                          "type": "string",
-                          "minLength": 1,
-                          "maxLength": 80
                         },
                         "clip_id": {
                           "type": "string",
@@ -13100,66 +13066,152 @@
                           "maxLength": 80,
                           "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
                         },
-                        "keyframe": {
-                          "type": "string",
-                          "enum": [
-                            "start",
-                            "end"
-                          ]
-                        },
-                        "requested_focus": {
-                          "type": "object",
-                          "properties": {
-                            "x": {
-                              "type": "number"
-                            },
-                            "y": {
-                              "type": "number"
-                            }
-                          },
-                          "required": [
-                            "x",
-                            "y"
-                          ],
-                          "additionalProperties": false
-                        },
-                        "actual_focus": {
-                          "type": "object",
-                          "properties": {
-                            "x": {
-                              "type": "number"
-                            },
-                            "y": {
-                              "type": "number"
-                            }
-                          },
-                          "required": [
-                            "x",
-                            "y"
-                          ],
-                          "additionalProperties": false
+                        "start_tick": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 60963840000000
                         },
                         "duration_ticks": {
+                          "type": "integer",
+                          "minimum": 1,
+                          "maximum": 60963840000000
+                        },
+                        "start_seconds": {
+                          "type": "number",
+                          "minimum": 0,
+                          "maximum": 86400
+                        }
+                      },
+                      "required": [
+                        "index",
+                        "asset_id",
+                        "clip_id",
+                        "start_tick",
+                        "duration_ticks",
+                        "start_seconds"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "minItems": 1,
+                    "maxItems": 400
+                  },
+                  "cuts": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "role": {
+                          "type": "string",
+                          "enum": [
+                            "intro",
+                            "shot",
+                            "outro"
+                          ]
+                        },
+                        "clip_id": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 80,
+                          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+                        },
+                        "asset_id": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 80,
+                          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+                        },
+                        "cut_in_tick": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 60963840000000
+                        },
+                        "cut_out_tick": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 60963840000000
+                        },
+                        "clip_start_tick": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 60963840000000
+                        },
+                        "clip_duration_ticks": {
+                          "type": "integer",
+                          "minimum": 1,
+                          "maximum": 60963840000000
+                        }
+                      },
+                      "required": [
+                        "role",
+                        "clip_id",
+                        "asset_id",
+                        "cut_in_tick",
+                        "cut_out_tick",
+                        "clip_start_tick",
+                        "clip_duration_ticks"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "minItems": 1,
+                    "maxItems": 302
+                  },
+                  "native_cores": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "clip_id": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 80,
+                          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+                        },
+                        "asset_id": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 80,
+                          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+                        },
+                        "core_start_tick": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 60963840000000
+                        },
+                        "core_end_tick": {
                           "type": "integer",
                           "minimum": 0,
                           "maximum": 60963840000000
                         }
                       },
                       "required": [
-                        "code"
+                        "clip_id",
+                        "asset_id",
+                        "core_start_tick",
+                        "core_end_tick"
                       ],
-                      "additionalProperties": true
+                      "additionalProperties": false
                     },
-                    "maxItems": 100000
+                    "maxItems": 302
                   }
                 },
                 "required": [
                   "committed",
                   "base_revision",
                   "changed_ids",
-                  "removed_ids",
                   "duration_ticks",
-                  "diff"
+                  "created_track_ids",
+                  "visual_track_id",
+                  "narration_track_id",
+                  "music_track_id",
+                  "overlay_track_id",
+                  "frame_ticks",
+                  "dissolve_window_ticks",
+                  "lead_in_ticks",
+                  "narration_end_tick",
+                  "total_duration_ticks",
+                  "segment_offsets",
+                  "cuts",
+                  "native_cores"
                 ],
                 "additionalProperties": false
               },
@@ -13222,9 +13274,25 @@
           "warnings": {
             "type": "array",
             "items": {
-              "$ref": "#/$defs/warning"
+              "type": "object",
+              "properties": {
+                "code": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 80,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+                },
+                "message": {
+                  "type": "string",
+                  "maxLength": 65536
+                }
+              },
+              "required": [
+                "code",
+                "message"
+              ],
+              "additionalProperties": false
             },
-            "minItems": 0,
             "maxItems": 100000
           }
         },
@@ -13269,33 +13337,12 @@
                         "maxLength": 80,
                         "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
                       },
-                      "minItems": 0,
-                      "maxItems": 100000
-                    },
-                    "removed_ids": {
-                      "type": "array",
-                      "items": {
-                        "type": "string",
-                        "minLength": 1,
-                        "maxLength": 80,
-                        "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
-                      },
-                      "minItems": 0,
                       "maxItems": 100000
                     },
                     "duration_ticks": {
                       "type": "integer",
                       "minimum": 0,
                       "maximum": 60963840000000
-                    },
-                    "diff": {
-                      "type": "array",
-                      "items": {
-                        "type": "string",
-                        "maxLength": 65536
-                      },
-                      "minItems": 0,
-                      "maxItems": 1000
                     },
                     "created_track_ids": {
                       "type": "array",
@@ -13305,19 +13352,7 @@
                         "maxLength": 80,
                         "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
                       },
-                      "minItems": 0,
-                      "maxItems": 100000
-                    },
-                    "created_clip_ids": {
-                      "type": "array",
-                      "items": {
-                        "type": "string",
-                        "minLength": 1,
-                        "maxLength": 80,
-                        "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
-                      },
-                      "minItems": 0,
-                      "maxItems": 100000
+                      "maxItems": 4
                     },
                     "visual_track_id": {
                       "type": "string",
@@ -13325,79 +13360,78 @@
                       "maxLength": 80,
                       "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
                     },
-                    "start_tick": {
+                    "narration_track_id": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 80,
+                      "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+                    },
+                    "music_track_id": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 80,
+                          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "overlay_track_id": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 80,
+                          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "frame_ticks": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 60963840000000
+                    },
+                    "dissolve_window_ticks": {
                       "type": "integer",
                       "minimum": 0,
                       "maximum": 60963840000000
                     },
-                    "visual_duration_ticks": {
+                    "lead_in_ticks": {
                       "type": "integer",
                       "minimum": 0,
                       "maximum": 60963840000000
                     },
-                    "audio_duration_ticks": {
+                    "narration_end_tick": {
                       "type": "integer",
                       "minimum": 0,
                       "maximum": 60963840000000
                     },
-                    "track_roles": {
+                    "total_duration_ticks": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 60963840000000
+                    },
+                    "segment_offsets": {
                       "type": "array",
                       "items": {
                         "type": "object",
                         "properties": {
-                          "role": {
-                            "type": "string"
+                          "index": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 399
                           },
-                          "track_id": {
+                          "asset_id": {
                             "type": "string",
                             "minLength": 1,
                             "maxLength": 80,
                             "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
-                          },
-                          "name": {
-                            "type": "string"
-                          }
-                        },
-                        "required": [
-                          "role",
-                          "track_id",
-                          "name"
-                        ],
-                        "additionalProperties": false
-                      },
-                      "maxItems": 100
-                    },
-                    "transition": {
-                      "type": "object",
-                      "properties": {
-                        "kind": {
-                          "type": "string",
-                          "enum": [
-                            "cut",
-                            "cross_dissolve"
-                          ]
-                        },
-                        "duration_ticks": {
-                          "type": "integer",
-                          "minimum": 0,
-                          "maximum": 60963840000000
-                        }
-                      },
-                      "required": [
-                        "kind",
-                        "duration_ticks"
-                      ],
-                      "additionalProperties": false
-                    },
-                    "warnings": {
-                      "type": "array",
-                      "items": {
-                        "type": "object",
-                        "properties": {
-                          "code": {
-                            "type": "string",
-                            "minLength": 1,
-                            "maxLength": 80
                           },
                           "clip_id": {
                             "type": "string",
@@ -13405,66 +13439,152 @@
                             "maxLength": 80,
                             "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
                           },
-                          "keyframe": {
-                            "type": "string",
-                            "enum": [
-                              "start",
-                              "end"
-                            ]
-                          },
-                          "requested_focus": {
-                            "type": "object",
-                            "properties": {
-                              "x": {
-                                "type": "number"
-                              },
-                              "y": {
-                                "type": "number"
-                              }
-                            },
-                            "required": [
-                              "x",
-                              "y"
-                            ],
-                            "additionalProperties": false
-                          },
-                          "actual_focus": {
-                            "type": "object",
-                            "properties": {
-                              "x": {
-                                "type": "number"
-                              },
-                              "y": {
-                                "type": "number"
-                              }
-                            },
-                            "required": [
-                              "x",
-                              "y"
-                            ],
-                            "additionalProperties": false
+                          "start_tick": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 60963840000000
                           },
                           "duration_ticks": {
+                            "type": "integer",
+                            "minimum": 1,
+                            "maximum": 60963840000000
+                          },
+                          "start_seconds": {
+                            "type": "number",
+                            "minimum": 0,
+                            "maximum": 86400
+                          }
+                        },
+                        "required": [
+                          "index",
+                          "asset_id",
+                          "clip_id",
+                          "start_tick",
+                          "duration_ticks",
+                          "start_seconds"
+                        ],
+                        "additionalProperties": false
+                      },
+                      "minItems": 1,
+                      "maxItems": 400
+                    },
+                    "cuts": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "role": {
+                            "type": "string",
+                            "enum": [
+                              "intro",
+                              "shot",
+                              "outro"
+                            ]
+                          },
+                          "clip_id": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 80,
+                            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+                          },
+                          "asset_id": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 80,
+                            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+                          },
+                          "cut_in_tick": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 60963840000000
+                          },
+                          "cut_out_tick": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 60963840000000
+                          },
+                          "clip_start_tick": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 60963840000000
+                          },
+                          "clip_duration_ticks": {
+                            "type": "integer",
+                            "minimum": 1,
+                            "maximum": 60963840000000
+                          }
+                        },
+                        "required": [
+                          "role",
+                          "clip_id",
+                          "asset_id",
+                          "cut_in_tick",
+                          "cut_out_tick",
+                          "clip_start_tick",
+                          "clip_duration_ticks"
+                        ],
+                        "additionalProperties": false
+                      },
+                      "minItems": 1,
+                      "maxItems": 302
+                    },
+                    "native_cores": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "clip_id": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 80,
+                            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+                          },
+                          "asset_id": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 80,
+                            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+                          },
+                          "core_start_tick": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 60963840000000
+                          },
+                          "core_end_tick": {
                             "type": "integer",
                             "minimum": 0,
                             "maximum": 60963840000000
                           }
                         },
                         "required": [
-                          "code"
+                          "clip_id",
+                          "asset_id",
+                          "core_start_tick",
+                          "core_end_tick"
                         ],
-                        "additionalProperties": true
+                        "additionalProperties": false
                       },
-                      "maxItems": 100000
+                      "maxItems": 302
                     }
                   },
                   "required": [
                     "committed",
                     "base_revision",
                     "changed_ids",
-                    "removed_ids",
                     "duration_ticks",
-                    "diff"
+                    "created_track_ids",
+                    "visual_track_id",
+                    "narration_track_id",
+                    "music_track_id",
+                    "overlay_track_id",
+                    "frame_ticks",
+                    "dissolve_window_ticks",
+                    "lead_in_ticks",
+                    "narration_end_tick",
+                    "total_duration_ticks",
+                    "segment_offsets",
+                    "cuts",
+                    "native_cores"
                   ],
                   "additionalProperties": false
                 },
@@ -13479,34 +13599,53 @@
                   "type": "null"
                 },
                 "error": {
-                  "type": "object"
+                  "type": "object",
+                  "properties": {
+                    "code": {
+                      "type": "string",
+                      "enum": [
+                        "INVALID_ARGUMENT",
+                        "NOT_FOUND",
+                        "REVISION_CONFLICT",
+                        "LOCKED_TRACK",
+                        "IDEMPOTENCY_CONFLICT",
+                        "DEPENDENCY_CONFLICT",
+                        "PATH_DENIED",
+                        "OVERWRITE_DENIED",
+                        "MEDIA_OFFLINE",
+                        "MEDIA_CHANGED",
+                        "UNSUPPORTED_FEATURE",
+                        "UNSUPPORTED_PROTOCOL",
+                        "RENDER_FAILED",
+                        "DISK_FULL",
+                        "CANCELLED",
+                        "JOB_INTERRUPTED",
+                        "INTERNAL_ERROR"
+                      ]
+                    },
+                    "message": {
+                      "type": "string",
+                      "maxLength": 65536
+                    },
+                    "retryable": {
+                      "type": "boolean"
+                    },
+                    "details": {
+                      "type": "object"
+                    }
+                  },
+                  "required": [
+                    "code",
+                    "message",
+                    "retryable",
+                    "details"
+                  ],
+                  "additionalProperties": false
                 }
               }
             }
           }
-        ],
-        "$defs": {
-          "warning": {
-            "type": "object",
-            "properties": {
-              "code": {
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 80,
-                "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
-              },
-              "message": {
-                "type": "string",
-                "maxLength": 65536
-              }
-            },
-            "required": [
-              "code",
-              "message"
-            ],
-            "additionalProperties": false
-          }
-        }
+        ]
       },
       "annotations": {
         "readOnlyHint": false,
@@ -16859,7 +16998,7 @@
           },
           "master_loudness": {
             "type": "object",
-            "description": "Explicit EBU R128 normalization of the final mix (two-pass loudnorm). Omit to keep the plain linear mix.",
+            "description": "Measures the mix with EBU R128 ebur128, applies linear gain toward integrated_lufs, and adds a sample-peak limiter only when needed to meet true_peak_db. lra is validated and reported but does not change processing. Omit to keep the plain linear mix.",
             "properties": {
               "integrated_lufs": {
                 "type": "number",
@@ -16942,6 +17081,76 @@
                 "properties": {
                   "job": {
                     "$ref": "#/$defs/job"
+                  },
+                  "master_loudness": {
+                    "type": "object",
+                    "properties": {
+                      "method": {
+                        "type": "string"
+                      },
+                      "applied_gain_db": {
+                        "type": "number"
+                      },
+                      "peak_limited": {
+                        "type": "boolean"
+                      },
+                      "target": {
+                        "type": "object",
+                        "properties": {
+                          "integrated_lufs": {
+                            "type": "number"
+                          },
+                          "true_peak_db": {
+                            "type": "number"
+                          },
+                          "lra": {
+                            "type": "number"
+                          }
+                        },
+                        "required": [
+                          "integrated_lufs",
+                          "true_peak_db",
+                          "lra"
+                        ],
+                        "additionalProperties": false
+                      },
+                      "measured_before": {
+                        "type": "object",
+                        "properties": {
+                          "integrated_lufs": {
+                            "type": "number"
+                          },
+                          "true_peak_db": {
+                            "type": "number"
+                          },
+                          "lra": {
+                            "type": "number"
+                          },
+                          "threshold": {
+                            "type": "number"
+                          }
+                        },
+                        "required": [
+                          "integrated_lufs",
+                          "true_peak_db",
+                          "lra",
+                          "threshold"
+                        ],
+                        "additionalProperties": false
+                      },
+                      "target_offset_lu": {
+                        "type": "number"
+                      }
+                    },
+                    "required": [
+                      "method",
+                      "applied_gain_db",
+                      "peak_limited",
+                      "target",
+                      "measured_before",
+                      "target_offset_lu"
+                    ],
+                    "additionalProperties": false
                   }
                 },
                 "required": [
@@ -17041,6 +17250,76 @@
                   "properties": {
                     "job": {
                       "$ref": "#/$defs/job"
+                    },
+                    "master_loudness": {
+                      "type": "object",
+                      "properties": {
+                        "method": {
+                          "type": "string"
+                        },
+                        "applied_gain_db": {
+                          "type": "number"
+                        },
+                        "peak_limited": {
+                          "type": "boolean"
+                        },
+                        "target": {
+                          "type": "object",
+                          "properties": {
+                            "integrated_lufs": {
+                              "type": "number"
+                            },
+                            "true_peak_db": {
+                              "type": "number"
+                            },
+                            "lra": {
+                              "type": "number"
+                            }
+                          },
+                          "required": [
+                            "integrated_lufs",
+                            "true_peak_db",
+                            "lra"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "measured_before": {
+                          "type": "object",
+                          "properties": {
+                            "integrated_lufs": {
+                              "type": "number"
+                            },
+                            "true_peak_db": {
+                              "type": "number"
+                            },
+                            "lra": {
+                              "type": "number"
+                            },
+                            "threshold": {
+                              "type": "number"
+                            }
+                          },
+                          "required": [
+                            "integrated_lufs",
+                            "true_peak_db",
+                            "lra",
+                            "threshold"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "target_offset_lu": {
+                          "type": "number"
+                        }
+                      },
+                      "required": [
+                        "method",
+                        "applied_gain_db",
+                        "peak_limited",
+                        "target",
+                        "measured_before",
+                        "target_offset_lu"
+                      ],
+                      "additionalProperties": false
                     }
                   },
                   "required": [
@@ -17197,6 +17476,76 @@
                     "type": "null"
                   }
                 ]
+              },
+              "master_loudness": {
+                "type": "object",
+                "properties": {
+                  "method": {
+                    "type": "string"
+                  },
+                  "applied_gain_db": {
+                    "type": "number"
+                  },
+                  "peak_limited": {
+                    "type": "boolean"
+                  },
+                  "target": {
+                    "type": "object",
+                    "properties": {
+                      "integrated_lufs": {
+                        "type": "number"
+                      },
+                      "true_peak_db": {
+                        "type": "number"
+                      },
+                      "lra": {
+                        "type": "number"
+                      }
+                    },
+                    "required": [
+                      "integrated_lufs",
+                      "true_peak_db",
+                      "lra"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "measured_before": {
+                    "type": "object",
+                    "properties": {
+                      "integrated_lufs": {
+                        "type": "number"
+                      },
+                      "true_peak_db": {
+                        "type": "number"
+                      },
+                      "lra": {
+                        "type": "number"
+                      },
+                      "threshold": {
+                        "type": "number"
+                      }
+                    },
+                    "required": [
+                      "integrated_lufs",
+                      "true_peak_db",
+                      "lra",
+                      "threshold"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "target_offset_lu": {
+                    "type": "number"
+                  }
+                },
+                "required": [
+                  "method",
+                  "applied_gain_db",
+                  "peak_limited",
+                  "target",
+                  "measured_before",
+                  "target_offset_lu"
+                ],
+                "additionalProperties": false
               }
             },
             "required": [
@@ -17307,7 +17656,7 @@
           },
           "master_loudness": {
             "type": "object",
-            "description": "Explicit EBU R128 normalization of the final mix (two-pass loudnorm). Omit to keep the plain linear mix.",
+            "description": "Measures the mix with EBU R128 ebur128, applies linear gain toward integrated_lufs, and adds a sample-peak limiter only when needed to meet true_peak_db. lra is validated and reported but does not change processing. Omit to keep the plain linear mix.",
             "properties": {
               "integrated_lufs": {
                 "type": "number",
@@ -17392,6 +17741,76 @@
                 "properties": {
                   "job": {
                     "$ref": "#/$defs/job"
+                  },
+                  "master_loudness": {
+                    "type": "object",
+                    "properties": {
+                      "method": {
+                        "type": "string"
+                      },
+                      "applied_gain_db": {
+                        "type": "number"
+                      },
+                      "peak_limited": {
+                        "type": "boolean"
+                      },
+                      "target": {
+                        "type": "object",
+                        "properties": {
+                          "integrated_lufs": {
+                            "type": "number"
+                          },
+                          "true_peak_db": {
+                            "type": "number"
+                          },
+                          "lra": {
+                            "type": "number"
+                          }
+                        },
+                        "required": [
+                          "integrated_lufs",
+                          "true_peak_db",
+                          "lra"
+                        ],
+                        "additionalProperties": false
+                      },
+                      "measured_before": {
+                        "type": "object",
+                        "properties": {
+                          "integrated_lufs": {
+                            "type": "number"
+                          },
+                          "true_peak_db": {
+                            "type": "number"
+                          },
+                          "lra": {
+                            "type": "number"
+                          },
+                          "threshold": {
+                            "type": "number"
+                          }
+                        },
+                        "required": [
+                          "integrated_lufs",
+                          "true_peak_db",
+                          "lra",
+                          "threshold"
+                        ],
+                        "additionalProperties": false
+                      },
+                      "target_offset_lu": {
+                        "type": "number"
+                      }
+                    },
+                    "required": [
+                      "method",
+                      "applied_gain_db",
+                      "peak_limited",
+                      "target",
+                      "measured_before",
+                      "target_offset_lu"
+                    ],
+                    "additionalProperties": false
                   }
                 },
                 "required": [
@@ -17491,6 +17910,76 @@
                   "properties": {
                     "job": {
                       "$ref": "#/$defs/job"
+                    },
+                    "master_loudness": {
+                      "type": "object",
+                      "properties": {
+                        "method": {
+                          "type": "string"
+                        },
+                        "applied_gain_db": {
+                          "type": "number"
+                        },
+                        "peak_limited": {
+                          "type": "boolean"
+                        },
+                        "target": {
+                          "type": "object",
+                          "properties": {
+                            "integrated_lufs": {
+                              "type": "number"
+                            },
+                            "true_peak_db": {
+                              "type": "number"
+                            },
+                            "lra": {
+                              "type": "number"
+                            }
+                          },
+                          "required": [
+                            "integrated_lufs",
+                            "true_peak_db",
+                            "lra"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "measured_before": {
+                          "type": "object",
+                          "properties": {
+                            "integrated_lufs": {
+                              "type": "number"
+                            },
+                            "true_peak_db": {
+                              "type": "number"
+                            },
+                            "lra": {
+                              "type": "number"
+                            },
+                            "threshold": {
+                              "type": "number"
+                            }
+                          },
+                          "required": [
+                            "integrated_lufs",
+                            "true_peak_db",
+                            "lra",
+                            "threshold"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "target_offset_lu": {
+                          "type": "number"
+                        }
+                      },
+                      "required": [
+                        "method",
+                        "applied_gain_db",
+                        "peak_limited",
+                        "target",
+                        "measured_before",
+                        "target_offset_lu"
+                      ],
+                      "additionalProperties": false
                     }
                   },
                   "required": [
@@ -17647,6 +18136,76 @@
                     "type": "null"
                   }
                 ]
+              },
+              "master_loudness": {
+                "type": "object",
+                "properties": {
+                  "method": {
+                    "type": "string"
+                  },
+                  "applied_gain_db": {
+                    "type": "number"
+                  },
+                  "peak_limited": {
+                    "type": "boolean"
+                  },
+                  "target": {
+                    "type": "object",
+                    "properties": {
+                      "integrated_lufs": {
+                        "type": "number"
+                      },
+                      "true_peak_db": {
+                        "type": "number"
+                      },
+                      "lra": {
+                        "type": "number"
+                      }
+                    },
+                    "required": [
+                      "integrated_lufs",
+                      "true_peak_db",
+                      "lra"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "measured_before": {
+                    "type": "object",
+                    "properties": {
+                      "integrated_lufs": {
+                        "type": "number"
+                      },
+                      "true_peak_db": {
+                        "type": "number"
+                      },
+                      "lra": {
+                        "type": "number"
+                      },
+                      "threshold": {
+                        "type": "number"
+                      }
+                    },
+                    "required": [
+                      "integrated_lufs",
+                      "true_peak_db",
+                      "lra",
+                      "threshold"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "target_offset_lu": {
+                    "type": "number"
+                  }
+                },
+                "required": [
+                  "method",
+                  "applied_gain_db",
+                  "peak_limited",
+                  "target",
+                  "measured_before",
+                  "target_offset_lu"
+                ],
+                "additionalProperties": false
               }
             },
             "required": [
@@ -17762,6 +18321,76 @@
                 "properties": {
                   "job": {
                     "$ref": "#/$defs/job"
+                  },
+                  "master_loudness": {
+                    "type": "object",
+                    "properties": {
+                      "method": {
+                        "type": "string"
+                      },
+                      "applied_gain_db": {
+                        "type": "number"
+                      },
+                      "peak_limited": {
+                        "type": "boolean"
+                      },
+                      "target": {
+                        "type": "object",
+                        "properties": {
+                          "integrated_lufs": {
+                            "type": "number"
+                          },
+                          "true_peak_db": {
+                            "type": "number"
+                          },
+                          "lra": {
+                            "type": "number"
+                          }
+                        },
+                        "required": [
+                          "integrated_lufs",
+                          "true_peak_db",
+                          "lra"
+                        ],
+                        "additionalProperties": false
+                      },
+                      "measured_before": {
+                        "type": "object",
+                        "properties": {
+                          "integrated_lufs": {
+                            "type": "number"
+                          },
+                          "true_peak_db": {
+                            "type": "number"
+                          },
+                          "lra": {
+                            "type": "number"
+                          },
+                          "threshold": {
+                            "type": "number"
+                          }
+                        },
+                        "required": [
+                          "integrated_lufs",
+                          "true_peak_db",
+                          "lra",
+                          "threshold"
+                        ],
+                        "additionalProperties": false
+                      },
+                      "target_offset_lu": {
+                        "type": "number"
+                      }
+                    },
+                    "required": [
+                      "method",
+                      "applied_gain_db",
+                      "peak_limited",
+                      "target",
+                      "measured_before",
+                      "target_offset_lu"
+                    ],
+                    "additionalProperties": false
                   }
                 },
                 "required": [
@@ -17861,6 +18490,76 @@
                   "properties": {
                     "job": {
                       "$ref": "#/$defs/job"
+                    },
+                    "master_loudness": {
+                      "type": "object",
+                      "properties": {
+                        "method": {
+                          "type": "string"
+                        },
+                        "applied_gain_db": {
+                          "type": "number"
+                        },
+                        "peak_limited": {
+                          "type": "boolean"
+                        },
+                        "target": {
+                          "type": "object",
+                          "properties": {
+                            "integrated_lufs": {
+                              "type": "number"
+                            },
+                            "true_peak_db": {
+                              "type": "number"
+                            },
+                            "lra": {
+                              "type": "number"
+                            }
+                          },
+                          "required": [
+                            "integrated_lufs",
+                            "true_peak_db",
+                            "lra"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "measured_before": {
+                          "type": "object",
+                          "properties": {
+                            "integrated_lufs": {
+                              "type": "number"
+                            },
+                            "true_peak_db": {
+                              "type": "number"
+                            },
+                            "lra": {
+                              "type": "number"
+                            },
+                            "threshold": {
+                              "type": "number"
+                            }
+                          },
+                          "required": [
+                            "integrated_lufs",
+                            "true_peak_db",
+                            "lra",
+                            "threshold"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "target_offset_lu": {
+                          "type": "number"
+                        }
+                      },
+                      "required": [
+                        "method",
+                        "applied_gain_db",
+                        "peak_limited",
+                        "target",
+                        "measured_before",
+                        "target_offset_lu"
+                      ],
+                      "additionalProperties": false
                     }
                   },
                   "required": [
@@ -18017,6 +18716,76 @@
                     "type": "null"
                   }
                 ]
+              },
+              "master_loudness": {
+                "type": "object",
+                "properties": {
+                  "method": {
+                    "type": "string"
+                  },
+                  "applied_gain_db": {
+                    "type": "number"
+                  },
+                  "peak_limited": {
+                    "type": "boolean"
+                  },
+                  "target": {
+                    "type": "object",
+                    "properties": {
+                      "integrated_lufs": {
+                        "type": "number"
+                      },
+                      "true_peak_db": {
+                        "type": "number"
+                      },
+                      "lra": {
+                        "type": "number"
+                      }
+                    },
+                    "required": [
+                      "integrated_lufs",
+                      "true_peak_db",
+                      "lra"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "measured_before": {
+                    "type": "object",
+                    "properties": {
+                      "integrated_lufs": {
+                        "type": "number"
+                      },
+                      "true_peak_db": {
+                        "type": "number"
+                      },
+                      "lra": {
+                        "type": "number"
+                      },
+                      "threshold": {
+                        "type": "number"
+                      }
+                    },
+                    "required": [
+                      "integrated_lufs",
+                      "true_peak_db",
+                      "lra",
+                      "threshold"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "target_offset_lu": {
+                    "type": "number"
+                  }
+                },
+                "required": [
+                  "method",
+                  "applied_gain_db",
+                  "peak_limited",
+                  "target",
+                  "measured_before",
+                  "target_offset_lu"
+                ],
+                "additionalProperties": false
               }
             },
             "required": [

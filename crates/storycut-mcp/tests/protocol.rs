@@ -1,8 +1,10 @@
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
+use jsonschema::validator_for;
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use std::collections::VecDeque;
+use std::fs::{self, File};
 use std::io::{self, BufRead, Read, Write};
 use std::path::PathBuf;
 use std::sync::mpsc::{self, Receiver, Sender};
@@ -167,6 +169,127 @@ fn finish(client: ProtocolClient, server: JoinHandle<Result<(), storycut_mcp::Mc
         server.join().unwrap().is_ok(),
         "server must treat EOF as normal shutdown"
     );
+}
+
+fn write_silent_wav(path: &std::path::Path) {
+    let sample_rate = 48_000_u32;
+    let sample_count = sample_rate;
+    let data_bytes = sample_count * 2;
+    let mut file = File::create(path).unwrap();
+    file.write_all(b"RIFF").unwrap();
+    file.write_all(&(36 + data_bytes).to_le_bytes()).unwrap();
+    file.write_all(b"WAVEfmt ").unwrap();
+    file.write_all(&16_u32.to_le_bytes()).unwrap();
+    file.write_all(&1_u16.to_le_bytes()).unwrap();
+    file.write_all(&1_u16.to_le_bytes()).unwrap();
+    file.write_all(&sample_rate.to_le_bytes()).unwrap();
+    file.write_all(&(sample_rate * 2).to_le_bytes()).unwrap();
+    file.write_all(&2_u16.to_le_bytes()).unwrap();
+    file.write_all(&16_u16.to_le_bytes()).unwrap();
+    file.write_all(b"data").unwrap();
+    file.write_all(&data_bytes.to_le_bytes()).unwrap();
+    file.write_all(&vec![0_u8; data_bytes as usize]).unwrap();
+}
+
+#[test]
+fn narration_assemble_real_protocol_response_matches_output_schema() {
+    let workspace = tempfile::tempdir().unwrap();
+    let image = workspace.path().join("shot.png");
+    let image_fixture =
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../desktop/src-tauri/icons/32x32.png");
+    fs::copy(image_fixture, &image).unwrap();
+    let voice = workspace.path().join("voice.wav");
+    write_silent_wav(&voice);
+
+    let (client, server) =
+        start_server_with_workspace(storycut_command::dispatch, workspace.path().to_path_buf());
+    client.send_value(&initialize(1));
+    assert_eq!(client.receive()["id"], 1);
+    client.send_value(&json!({"jsonrpc":"2.0","method":"notifications/initialized"}));
+    client.send_value(&json!({"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}));
+    let listing = client.receive();
+    let narration_schema = listing["result"]["tools"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|tool| tool["name"] == "storycut_narration_assemble")
+        .unwrap()["outputSchema"]
+        .clone();
+    let validator = validator_for(&narration_schema).unwrap();
+
+    client.send_value(&json!({
+        "jsonrpc":"2.0","id":3,"method":"tools/call",
+        "params":{"name":"storycut_project_create","arguments":{
+            "path":"story.storycut.json","name":"Protocol narration fixture",
+            "canvas":{"width":640,"height":360,"fps":{"num":30,"den":1},"background":"#000000","color_mode":"sdr_bt709"},
+            "audio_sample_rate":48000,"idempotency_key":"protocol-fixture-create"
+        }}
+    }));
+    let created = client.receive();
+    assert_eq!(created["result"]["isError"], false);
+    let project_id = created["result"]["structuredContent"]["project_id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let revision = created["result"]["structuredContent"]["revision"]
+        .as_u64()
+        .unwrap();
+
+    client.send_value(&json!({
+        "jsonrpc":"2.0","id":4,"method":"tools/call",
+        "params":{"name":"storycut_media_import","arguments":{
+            "project_id":project_id,"expected_revision":revision,"idempotency_key":"protocol-fixture-media",
+            "dry_run":false,"paths":[image.to_string_lossy(),voice.to_string_lossy()]
+        }}
+    }));
+    let imported = client.receive();
+    assert_eq!(imported["result"]["isError"], false);
+    let imported_content = &imported["result"]["structuredContent"];
+    let imported_revision = imported_content["revision"].as_u64().unwrap();
+    let assets = imported_content["data"]["assets"].as_array().unwrap();
+    let image_id = assets
+        .iter()
+        .find(|asset| asset["kind"] == "image")
+        .unwrap()["id"]
+        .as_str()
+        .unwrap();
+    let audio_id = assets
+        .iter()
+        .find(|asset| asset["kind"] == "audio")
+        .unwrap()["id"]
+        .as_str()
+        .unwrap();
+
+    client.send_value(&json!({
+        "jsonrpc":"2.0","id":5,"method":"tools/call",
+        "params":{"name":"storycut_narration_assemble","arguments":{
+            "project_id":project_id,"expected_revision":imported_revision,"idempotency_key":"protocol-narration",
+            "dry_run":false,"narration":{"segments":[{"asset_id":audio_id}]},
+            "shots":[{"asset_id":image_id,"segments":[0,0]}]
+        }}
+    }));
+    let response = client.receive();
+    assert_eq!(response["result"]["isError"], false);
+    let structured = response["result"]["structuredContent"].clone();
+    assert_eq!(structured["ok"], true);
+    assert!(
+        validator.is_valid(&structured),
+        "actual structuredContent must match outputSchema: {structured}"
+    );
+    assert_eq!(
+        structured["data"]["segment_offsets"][0]["asset_id"],
+        audio_id
+    );
+    assert_eq!(structured["data"]["cuts"][0]["asset_id"], image_id);
+
+    let mut invalid_example = structured;
+    invalid_example["data"]["segment_offsets"][0]["duration_ticks"] = json!(-1);
+    assert!(
+        !validator.is_valid(&invalid_example),
+        "negative duration_ticks must violate outputSchema"
+    );
+
+    finish(client, server);
 }
 
 #[test]
