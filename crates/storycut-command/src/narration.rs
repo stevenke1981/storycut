@@ -77,6 +77,19 @@ fn fail(message: impl Into<String>) -> CoreError {
     CoreError::validation(message.into())
 }
 
+fn optional_string<'a>(
+    value: Option<&'a Value>,
+    default: &'a str,
+    field: &str,
+) -> Result<&'a str, CoreError> {
+    match value {
+        None => Ok(default),
+        Some(value) => value
+            .as_str()
+            .ok_or_else(|| fail(format!("{field} must be a string"))),
+    }
+}
+
 fn find_asset<'a>(project: &'a Project, id: &str) -> Result<&'a Asset, CoreError> {
     project
         .assets
@@ -219,7 +232,10 @@ fn plan(project: &Project, args: &Value, key: &str) -> Result<(Vec<Operation>, V
         .frame_ticks()
         .ok_or_else(|| fail("project frame rate cannot be represented by the timebase"))?;
     let sample = TIMEBASE / u64::from(project.audio_sample_rate);
-    if sample == 0 || TIMEBASE % u64::from(project.audio_sample_rate) != 0 || frame % sample != 0 {
+    if sample == 0
+        || !TIMEBASE.is_multiple_of(u64::from(project.audio_sample_rate))
+        || !frame.is_multiple_of(sample)
+    {
         return Err(fail("project frame and sample grids must nest exactly"));
     }
 
@@ -229,11 +245,7 @@ fn plan(project: &Project, args: &Value, key: &str) -> Result<(Vec<Operation>, V
         .cloned()
         .unwrap_or_else(|| json!({"mode":"cut"}));
     require_object_keys(&transition, &["mode", "duration_seconds"]).map_err(command_to_core)?;
-    let window = match transition
-        .get("mode")
-        .and_then(Value::as_str)
-        .unwrap_or("cut")
-    {
+    let window = match optional_string(transition.get("mode"), "cut", "transition.mode")? {
         "cut" => 0,
         "centered_dissolve" => {
             let requested = seconds_value_to_ticks(
@@ -311,10 +323,7 @@ fn plan(project: &Project, args: &Value, key: &str) -> Result<(Vec<Operation>, V
         .unwrap_or(0);
     let lane_gain = gain(narration.get("gain_db"), "narration.gain_db")?;
     let narration_track = generated_id(project, key, "narration-voice-track", 0);
-    let track_name = narration
-        .get("track_name")
-        .and_then(Value::as_str)
-        .unwrap_or("旁白");
+    let track_name = optional_string(narration.get("track_name"), "旁白", "narration.track_name")?;
     operations.push(Operation::TrackAdd {
         track: make_track(narration_track.clone(), track_name, TrackKind::Audio),
     });
@@ -432,10 +441,7 @@ fn plan(project: &Project, args: &Value, key: &str) -> Result<(Vec<Operation>, V
         }
         visual.cut_in = boundaries[range.0];
         visual.cut_out = boundaries[range.1 + 1];
-        let align = shot
-            .get("align")
-            .and_then(Value::as_str)
-            .unwrap_or("center");
+        let align = optional_string(shot.get("align"), "center", &format!("{context}.align"))?;
         if !matches!(align, "start" | "center" | "end") {
             return Err(fail(format!(
                 "{context}.align must be start, center or end"
@@ -635,10 +641,7 @@ fn plan(project: &Project, args: &Value, key: &str) -> Result<(Vec<Operation>, V
         let track_id = generated_id(project, key, "narration-music-track", 0);
         let mut track = make_track(
             track_id.clone(),
-            music
-                .get("track_name")
-                .and_then(Value::as_str)
-                .unwrap_or("配樂"),
+            optional_string(music.get("track_name"), "配樂", "music.track_name")?,
             TrackKind::Audio,
         );
         track.ducking = match music.get("ducking") {
@@ -767,10 +770,11 @@ fn plan(project: &Project, args: &Value, key: &str) -> Result<(Vec<Operation>, V
         operations.push(Operation::TrackAdd {
             track: make_track(
                 track_id.clone(),
-                overlays
-                    .get("track_name")
-                    .and_then(Value::as_str)
-                    .unwrap_or("串場字卡"),
+                optional_string(
+                    overlays.get("track_name"),
+                    "串場字卡",
+                    "overlays.track_name",
+                )?,
                 TrackKind::Video,
             ),
         });
@@ -1108,5 +1112,33 @@ mod tests {
         ]);
         dispatch(dir.path(), "storycut_narration_assemble", fixed).unwrap();
         assert_eq!(load(dir.path(), &project_id).revision, 2);
+    }
+
+    #[test]
+    fn malformed_optional_strings_are_rejected_without_committing_defaults() {
+        for pointer in [
+            "/transition/mode",
+            "/narration/track_name",
+            "/shots/1/align",
+            "/music/track_name",
+            "/overlays/track_name",
+        ] {
+            let dir = tempfile::tempdir().unwrap();
+            let project_id = workspace(dir.path());
+            let mut args = request(&project_id, 1, false);
+            args["shots"][1]["align"] = json!("center");
+            args["narration"]["track_name"] = json!("旁白");
+            args["music"]["track_name"] = json!("配樂");
+            args["overlays"]["track_name"] = json!("串場字卡");
+            *args.pointer_mut(pointer).unwrap() = json!(42);
+            let error =
+                dispatch(dir.path(), "storycut_narration_assemble", args).expect_err(pointer);
+            assert!(
+                error.message.contains("string"),
+                "{pointer}: {}",
+                error.message
+            );
+            assert_eq!(load(dir.path(), &project_id).revision, 1, "{pointer}");
+        }
     }
 }

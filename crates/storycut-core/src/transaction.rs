@@ -877,16 +877,16 @@ fn apply_audio_domain_trim(
 /// Frozen video holds belong to a specific cut; trimming or splitting cannot
 /// infer which side should keep them, so the edit is refused explicitly.
 fn reject_video_holds(clip: &Clip, operation: &str) -> Result<(), CoreError> {
-    if let Clip::Video(video) = clip {
-        if video.has_holds() {
-            return Err(CoreError::new(
-                CoreErrorCode::UnsupportedFeature,
-                format!(
-                    "{operation} on video clip {} with frozen holds is unsupported; remove and re-add the clip",
-                    video.id
-                ),
-            ));
-        }
+    if let Clip::Video(video) = clip
+        && video.has_holds()
+    {
+        return Err(CoreError::new(
+            CoreErrorCode::UnsupportedFeature,
+            format!(
+                "{operation} on video clip {} with frozen holds is unsupported; remove and re-add the clip",
+                video.id
+            ),
+        ));
     }
     Ok(())
 }
