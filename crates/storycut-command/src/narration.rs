@@ -8,8 +8,9 @@
 //! so their continuous core is never blended.
 
 use super::{
-    CommandError, command_to_core, core_error, default_motion, field_bool, field_str, field_u64,
-    finite_number, floor_to_grid, generated_id, make_track, require_object_keys, round_to_grid,
+    CommandError, FocalMotionConfig, command_to_core, compute_focal_motion, core_error,
+    default_motion, field_bool, field_str, field_u64, finite_number, floor_to_grid, generated_id,
+    make_track, parse_focal_motion_config, require_object_keys, round_to_grid,
     seconds_value_to_ticks, semantic_identity, success, with_projection_warning,
 };
 use serde_json::{Value, json};
@@ -52,7 +53,7 @@ pub(crate) fn narration_assemble(workspace: &Path, args: &Value) -> Result<Value
             dry_run,
             "storycut_narration_assemble",
             semantic_identity(args),
-            |project| plan(project, args, idempotency_key),
+            |project| plan(workspace, project, args, idempotency_key),
         )
         .map_err(core_error)?;
     let mut data = planned.data.as_object().cloned().unwrap_or_default();
@@ -63,12 +64,18 @@ pub(crate) fn narration_assemble(workspace: &Path, args: &Value) -> Result<Value
         "duration_ticks".into(),
         json!(planned.result.duration_ticks),
     );
+    let mut response = success(
+        Some(project_id),
+        Some(planned.result.revision),
+        Value::Object(data),
+    );
+    if let Some(warnings) = planned.data.get("warnings").and_then(Value::as_array) {
+        if !warnings.is_empty() {
+            response["warnings"] = json!(warnings);
+        }
+    }
     Ok(with_projection_warning(
-        success(
-            Some(project_id),
-            Some(planned.result.revision),
-            Value::Object(data),
-        ),
+        response,
         planned.result.projection_warning.as_deref(),
     ))
 }
@@ -136,6 +143,7 @@ struct Visual {
     source_in: u64,
     cut_in: u64,
     cut_out: u64,
+    motion: Option<FocalMotionConfig>,
 }
 
 fn visual_from(
@@ -172,6 +180,7 @@ fn visual_from(
                     source_in: 0,
                     cut_in: 0,
                     cut_out: 0,
+                    motion: None,
                 },
                 explicit_duration,
             ))
@@ -205,6 +214,7 @@ fn visual_from(
                     source_in,
                     cut_in: 0,
                     cut_out: 0,
+                    motion: None,
                 },
                 None,
             ))
@@ -214,7 +224,12 @@ fn visual_from(
 }
 
 #[allow(clippy::too_many_lines)]
-fn plan(project: &Project, args: &Value, key: &str) -> Result<(Vec<Operation>, Value), CoreError> {
+fn plan(
+    workspace: &Path,
+    project: &Project,
+    args: &Value,
+    key: &str,
+) -> Result<(Vec<Operation>, Value), CoreError> {
     let frame = project
         .frame_ticks()
         .ok_or_else(|| fail("project frame rate cannot be represented by the timebase"))?;
@@ -405,6 +420,7 @@ fn plan(project: &Project, args: &Value, key: &str) -> Result<(Vec<Operation>, V
                 "align",
                 "source_in_seconds",
                 "duration_seconds",
+                "motion",
             ],
         )
         .map_err(command_to_core)?;
@@ -432,6 +448,9 @@ fn plan(project: &Project, args: &Value, key: &str) -> Result<(Vec<Operation>, V
         }
         visual.cut_in = boundaries[range.0];
         visual.cut_out = boundaries[range.1 + 1];
+        if let Some(motion_val) = shot.get("motion").filter(|v| !v.is_null()) {
+            visual.motion = Some(parse_focal_motion_config(motion_val)?);
+        }
         let align = shot
             .get("align")
             .and_then(Value::as_str)
@@ -554,6 +573,7 @@ fn plan(project: &Project, args: &Value, key: &str) -> Result<(Vec<Operation>, V
     }
 
     // ---- Visual clips and transitions --------------------------------------
+    let mut warnings = Vec::<Value>::new();
     let mut cut_report = Vec::new();
     let mut native_cores = Vec::new();
     let mut clip_ids = Vec::new();
@@ -565,6 +585,20 @@ fn plan(project: &Project, args: &Value, key: &str) -> Result<(Vec<Operation>, V
         let duration = end - start;
         let clip_id = generated_id(project, key, "narration-visual-clip", index);
         let asset = find_asset(project, &visual.asset_id)?;
+        let clip_motion = if let Some(cfg) = &visual.motion {
+            compute_focal_motion(
+                workspace,
+                &project.canvas,
+                asset,
+                &clip_id,
+                duration,
+                frame,
+                cfg,
+                &mut warnings,
+            )?
+        } else {
+            default_motion(duration, frame)
+        };
         let clip = match visual.kind {
             AssetKind::Image => Clip::Image(ImageClip {
                 id: clip_id.clone(),
@@ -573,7 +607,7 @@ fn plan(project: &Project, args: &Value, key: &str) -> Result<(Vec<Operation>, V
                 start_tick: start,
                 duration_ticks: duration,
                 source_in_tick: 0,
-                motion: default_motion(duration, frame),
+                motion: clip_motion,
             }),
             _ => {
                 let head = if dissolve_in { window } else { 0 };
@@ -593,7 +627,7 @@ fn plan(project: &Project, args: &Value, key: &str) -> Result<(Vec<Operation>, V
                     duration_ticks: duration,
                     source_in_tick: visual.source_in,
                     stream_index: stream_index(asset, StreamKind::Video)?,
-                    motion: default_motion(duration, frame),
+                    motion: clip_motion,
                     audio_policy: VideoAudioPolicy::Muted,
                     hold_head_ticks: head,
                     hold_tail_ticks: tail,
@@ -880,6 +914,7 @@ fn plan(project: &Project, args: &Value, key: &str) -> Result<(Vec<Operation>, V
         "segment_offsets":segment_offsets,
         "cuts":cut_report,
         "native_cores":native_cores,
+        "warnings":warnings,
     });
     Ok((operations, data))
 }
@@ -1108,5 +1143,171 @@ mod tests {
         ]);
         dispatch(dir.path(), "storycut_narration_assemble", fixed).unwrap();
         assert_eq!(load(dir.path(), &project_id).revision, 2);
+    }
+
+    #[test]
+    fn shot_motion_matches_focal_motion_apply() {
+        let dir = tempfile::tempdir().unwrap();
+        let img_path = dir.path().join("img-a.png");
+        let status = std::process::Command::new("ffmpeg")
+            .args(["-y", "-f", "lavfi", "-i", "color=c=red:s=320x180:d=1", "-frames:v", "1", "-update", "1"])
+            .arg(&img_path)
+            .status()
+            .expect("ffmpeg must be available for motion test");
+        assert!(status.success());
+
+        let store = ProjectStore::create(
+            dir.path(),
+            "story.storycut.json",
+            "motion-test",
+            Canvas::default(),
+            48_000,
+            "create",
+        )
+        .unwrap();
+
+        let probe_a = storycut_render::probe_media(&img_path).unwrap();
+        let mut assets = vec![
+            Asset {
+                id: "img-a".into(),
+                kind: AssetKind::Image,
+                path: "img-a.png".into(),
+                probe_status: ProbeStatus::Probed,
+                duration_ticks: None,
+                sha256: Some(probe_a.sha256.clone()),
+                streams: Vec::new(),
+            },
+            asset("outro", AssetKind::Image, None),
+        ];
+        for (index, samples) in SEGMENTS.iter().enumerate() {
+            assets.push(asset(
+                &format!("seg{index}"),
+                AssetKind::Audio,
+                Some(samples * SAMPLE),
+            ));
+        }
+        store.import_assets(0, "import", false, assets).unwrap();
+        let project_id = store.snapshot().unwrap().project_id;
+
+        let motion_def = json!({
+            "preset": "zoom_in",
+            "focus": {"x": 0.6, "y": 0.4},
+            "from_scale": 1.0,
+            "to_scale": 1.2
+        });
+
+        // 1. Direct assembly with motion
+        let req_with_motion = json!({
+            "project_id": project_id,
+            "expected_revision": 1,
+            "idempotency_key": "narration-with-motion",
+            "dry_run": false,
+            "narration": {
+                "segments": (0..5).map(|i| json!({"asset_id": format!("seg{i}")})).collect::<Vec<_>>()
+            },
+            "shots": [
+                {
+                    "asset_id": "img-a",
+                    "segments": [0, 4],
+                    "motion": motion_def
+                }
+            ],
+            "transition": {"mode": "cut"}
+        });
+        let res1 = dispatch(dir.path(), "storycut_narration_assemble", req_with_motion).unwrap();
+        assert_eq!(res1["ok"], true);
+        let project1 = load(dir.path(), &project_id);
+        let clip1 = project1.clips.iter().find(|c| c.asset_id() == "img-a").unwrap();
+        let motion1 = match clip1 {
+            Clip::Image(img) => &img.motion,
+            _ => panic!("expected image clip"),
+        };
+
+        // 2. Assembly without motion on another project, then apply focal_motion_apply
+        let dir2 = tempfile::tempdir().unwrap();
+        std::fs::copy(&img_path, dir2.path().join("img-a.png")).unwrap();
+        let store2 = ProjectStore::create(
+            dir2.path(),
+            "story.storycut.json",
+            "motion-test-2",
+            Canvas::default(),
+            48_000,
+            "create",
+        )
+        .unwrap();
+        let mut assets2 = vec![
+            Asset {
+                id: "img-a".into(),
+                kind: AssetKind::Image,
+                path: "img-a.png".into(),
+                probe_status: ProbeStatus::Probed,
+                duration_ticks: None,
+                sha256: Some(probe_a.sha256.clone()),
+                streams: Vec::new(),
+            },
+            asset("outro", AssetKind::Image, None),
+        ];
+        for (index, samples) in SEGMENTS.iter().enumerate() {
+            assets2.push(asset(
+                &format!("seg{index}"),
+                AssetKind::Audio,
+                Some(samples * SAMPLE),
+            ));
+        }
+        store2.import_assets(0, "import", false, assets2).unwrap();
+        let project_id2 = store2.snapshot().unwrap().project_id;
+
+        let req_without_motion = json!({
+            "project_id": project_id2,
+            "expected_revision": 1,
+            "idempotency_key": "narration-without-motion",
+            "dry_run": false,
+            "narration": {
+                "segments": (0..5).map(|i| json!({"asset_id": format!("seg{i}")})).collect::<Vec<_>>()
+            },
+            "shots": [
+                {
+                    "asset_id": "img-a",
+                    "segments": [0, 4]
+                }
+            ],
+            "transition": {"mode": "cut"}
+        });
+        let res2 = dispatch(dir2.path(), "storycut_narration_assemble", req_without_motion).unwrap();
+        assert_eq!(res2["ok"], true);
+        let project2 = load(dir2.path(), &project_id2);
+        let clip2_id = project2.clips.iter().find(|c| c.asset_id() == "img-a").unwrap().id().to_owned();
+
+        let focal_req = json!({
+            "project_id": project_id2,
+            "expected_revision": 2,
+            "idempotency_key": "focal-apply",
+            "dry_run": false,
+            "targets": [
+                {
+                    "clip_id": clip2_id,
+                    "focus": {"x": 0.6, "y": 0.4}
+                }
+            ],
+            "preset": "zoom_in",
+            "from_scale": 1.0,
+            "to_scale": 1.2
+        });
+        let res_focal = dispatch(dir2.path(), "storycut_focal_motion_apply", focal_req).unwrap();
+        assert_eq!(res_focal["ok"], true);
+        let project2_after = load(dir2.path(), &project_id2);
+        let clip2_after = project2_after.clips.iter().find(|c| c.asset_id() == "img-a").unwrap();
+        let motion2 = match clip2_after {
+            Clip::Image(img) => &img.motion,
+            _ => panic!("expected image clip"),
+        };
+
+        // Verify that the motion keyframes from assemble and focal_motion_apply are completely identical!
+        assert_eq!(motion1.keyframes, motion2.keyframes);
+        assert_eq!(motion1.domain_duration_ticks, motion2.domain_duration_ticks);
+        assert_eq!(motion1.sample_offset_tick, motion2.sample_offset_tick);
+        assert_eq!(motion1.fit, motion2.fit);
+        assert_eq!(motion1.avoid_exposed_edges, motion2.avoid_exposed_edges);
+        assert_eq!(motion1.interpolation, motion2.interpolation);
     }
 }

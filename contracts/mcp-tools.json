@@ -12710,6 +12710,60 @@
                   "type": "number",
                   "minimum": 1e-06,
                   "maximum": 86400
+                },
+                "motion": {
+                  "type": "object",
+                  "properties": {
+                    "preset": {
+                      "type": "string",
+                      "enum": [
+                        "focus_zoom",
+                        "zoom_in",
+                        "zoom_out",
+                        "static",
+                        "pan_left",
+                        "pan_right",
+                        "pan_up",
+                        "pan_down"
+                      ]
+                    },
+                    "focus": {
+                      "type": "object",
+                      "properties": {
+                        "x": {
+                          "type": "number",
+                          "minimum": 0.0,
+                          "maximum": 1.0
+                        },
+                        "y": {
+                          "type": "number",
+                          "minimum": 0.0,
+                          "maximum": 1.0
+                        }
+                      },
+                      "required": [
+                        "x",
+                        "y"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "from_scale": {
+                      "type": "number",
+                      "minimum": 1.0,
+                      "maximum": 16.0
+                    },
+                    "to_scale": {
+                      "type": "number",
+                      "minimum": 1.0,
+                      "maximum": 16.0
+                    },
+                    "pan_amount": {
+                      "type": "number",
+                      "minimum": 0.0,
+                      "maximum": 0.5
+                    }
+                  },
+                  "additionalProperties": false
                 }
               },
               "required": [

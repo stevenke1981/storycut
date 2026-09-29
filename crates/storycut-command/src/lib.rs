@@ -2067,32 +2067,6 @@ fn plan_focal_motion(
             .iter()
             .find(|asset| asset.id == clip.asset_id())
             .ok_or_else(|| fail(format!("asset for clip {clip_id} was not found")))?;
-        let media_path = checked_path(workspace, &asset.path, true).map_err(command_to_core)?;
-        let probe = storycut_render::probe_media(&media_path)
-            .map_err(render_error)
-            .map_err(command_to_core)?;
-        if asset
-            .sha256
-            .as_deref()
-            .is_none_or(|hash| !hash.eq_ignore_ascii_case(&probe.sha256))
-        {
-            return Err(storycut_core::CoreError::new(
-                storycut_core::CoreErrorCode::MediaChanged,
-                format!("asset {} changed after it was imported", asset.id),
-            ));
-        }
-        let source_width = probe.width.filter(|width| *width > 0).ok_or_else(|| {
-            storycut_core::CoreError::new(
-                storycut_core::CoreErrorCode::UnsupportedFeature,
-                format!("asset {} has no usable video width", asset.id),
-            )
-        })?;
-        let source_height = probe.height.filter(|height| *height > 0).ok_or_else(|| {
-            storycut_core::CoreError::new(
-                storycut_core::CoreErrorCode::UnsupportedFeature,
-                format!("asset {} has no usable video height", asset.id),
-            )
-        })?;
         let focus = if let Some(focus) = target.get("focus") {
             require_object_keys(focus, &["x", "y"]).map_err(command_to_core)?;
             let x = finite_number(focus.get("x"), f64::NAN, "focus.x")?;
@@ -2106,86 +2080,23 @@ fn plan_focal_motion(
         } else {
             Anchor { x: 0.5, y: 0.5 }
         };
-        let canvas = &project.canvas;
-        let pan_start = pan_vector(preset, pan_amount, true);
-        let pan_end = pan_vector(preset, pan_amount, false);
-        let (first_x, first_y, first_clamped) = focal_position(
-            canvas.width,
-            canvas.height,
-            source_width,
-            source_height,
+        let config = FocalMotionConfig {
+            preset: preset.to_owned(),
+            focus,
             from_scale,
-            &focus,
-            pan_start.0,
-            pan_start.1,
-        );
-        let (last_x, last_y, last_clamped) = focal_position(
-            canvas.width,
-            canvas.height,
-            source_width,
-            source_height,
             to_scale,
-            &focus,
-            pan_end.0,
-            pan_end.1,
-        );
-        if let Some((actual_x, actual_y)) = first_clamped {
-            warnings.push(json!({
-                "code":if preset.starts_with("pan_") {"PAN_CLAMPED"} else {"FOCUS_CLAMPED"},
-                "message":"取景已限制在圖片邊界內，以避免露出空白。",
-                "clip_id":clip_id,
-                "keyframe":"start",
-                "requested_focus":{"x":focus.x,"y":focus.y},
-                "actual_focus":{"x":actual_x,"y":actual_y}
-            }));
-        }
-        if let Some((actual_x, actual_y)) = last_clamped {
-            warnings.push(json!({
-                "code":if preset.starts_with("pan_") {"PAN_CLAMPED"} else {"FOCUS_CLAMPED"},
-                "message":"取景已限制在圖片邊界內，以避免露出空白。",
-                "clip_id":clip_id,
-                "keyframe":"end",
-                "requested_focus":{"x":focus.x,"y":focus.y},
-                "actual_focus":{"x":actual_x,"y":actual_y}
-            }));
-        }
-        let visible_duration = clip.duration_ticks();
-        if visible_duration == 0 || visible_duration % frame_ticks != 0 {
-            return Err(fail(format!(
-                "clip {clip_id} duration is not frame aligned"
-            )));
-        }
-        let end_key_tick = visible_duration - frame_ticks;
-        let first = Keyframe {
-            tick: 0,
-            x: first_x,
-            y: first_y,
-            scale: from_scale,
-            opacity: 1.0,
+            pan_amount,
         };
-        let keyframes = if visible_duration == frame_ticks {
-            vec![first]
-        } else {
-            vec![
-                first,
-                Keyframe {
-                    tick: end_key_tick,
-                    x: last_x,
-                    y: last_y,
-                    scale: to_scale,
-                    opacity: 1.0,
-                },
-            ]
-        };
-        let motion = Motion {
-            domain_duration_ticks: visible_duration,
-            sample_offset_tick: 0,
-            fit: FitMode::Cover,
-            avoid_exposed_edges: true,
-            anchor: Anchor { x: 0.5, y: 0.5 },
-            interpolation: Interpolation::Smoothstep,
-            keyframes,
-        };
+        let motion = compute_focal_motion(
+            workspace,
+            &project.canvas,
+            asset,
+            clip_id,
+            clip.duration_ticks(),
+            frame_ticks,
+            &config,
+            &mut warnings,
+        )?;
         operations.push(Operation::MotionSet {
             clip_id: clip_id.to_owned(),
             motion,
@@ -2201,6 +2112,182 @@ fn plan_focal_motion(
         "warnings":warnings,
     });
     Ok((operations, data))
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct FocalMotionConfig {
+    pub preset: String,
+    pub focus: Anchor,
+    pub from_scale: f64,
+    pub to_scale: f64,
+    pub pan_amount: f64,
+}
+
+pub(crate) fn parse_focal_motion_config(value: &Value) -> Result<FocalMotionConfig, storycut_core::CoreError> {
+    require_object_keys(
+        value,
+        &["preset", "focus", "from_scale", "to_scale", "pan_amount"],
+    )
+    .map_err(command_to_core)?;
+    let preset = value
+        .get("preset")
+        .map(|v| {
+            v.as_str()
+                .ok_or_else(|| storycut_core::CoreError::validation("preset must be a string"))
+        })
+        .transpose()?
+        .unwrap_or("focus_zoom")
+        .to_owned();
+    let (default_from, default_to) = match preset.as_str() {
+        "focus_zoom" | "zoom_in" => (1.0, 1.18),
+        "zoom_out" => (1.18, 1.0),
+        "static" => (1.0, 1.0),
+        "pan_left" | "pan_right" | "pan_up" | "pan_down" => (1.1, 1.1),
+        _ => return Err(storycut_core::CoreError::validation(format!("unsupported focal motion preset {preset}"))),
+    };
+    let from_scale = finite_number(value.get("from_scale"), default_from, "from_scale")?;
+    let to_scale = finite_number(value.get("to_scale"), default_to, "to_scale")?;
+    if !(1.0..=16.0).contains(&from_scale) || !(1.0..=16.0).contains(&to_scale) {
+        return Err(storycut_core::CoreError::validation("from_scale and to_scale must be within 1..=16"));
+    }
+    let pan_amount = finite_number(value.get("pan_amount"), 0.03, "pan_amount")?;
+    if !(0.0..=0.5).contains(&pan_amount) {
+        return Err(storycut_core::CoreError::validation("pan_amount must be within 0..=0.5"));
+    }
+    let focus = if let Some(focus_val) = value.get("focus") {
+        require_object_keys(focus_val, &["x", "y"]).map_err(command_to_core)?;
+        let x = finite_number(focus_val.get("x"), f64::NAN, "focus.x")?;
+        let y = finite_number(focus_val.get("y"), f64::NAN, "focus.y")?;
+        if !(0.0..=1.0).contains(&x) || !(0.0..=1.0).contains(&y) {
+            return Err(storycut_core::CoreError::validation("focus must be normalized within 0..=1"));
+        }
+        Anchor { x, y }
+    } else {
+        Anchor { x: 0.5, y: 0.5 }
+    };
+    Ok(FocalMotionConfig {
+        preset,
+        focus,
+        from_scale,
+        to_scale,
+        pan_amount,
+    })
+}
+
+pub(crate) fn compute_focal_motion(
+    workspace: &Path,
+    canvas: &storycut_core::Canvas,
+    asset: &storycut_core::Asset,
+    clip_id: &str,
+    visible_duration: u64,
+    frame_ticks: u64,
+    config: &FocalMotionConfig,
+    warnings: &mut Vec<Value>,
+) -> Result<storycut_core::Motion, storycut_core::CoreError> {
+    let media_path = checked_path(workspace, &asset.path, true).map_err(command_to_core)?;
+    let probe = storycut_render::probe_media(&media_path)
+        .map_err(render_error)
+        .map_err(command_to_core)?;
+    if asset
+        .sha256
+        .as_deref()
+        .is_none_or(|hash| !hash.eq_ignore_ascii_case(&probe.sha256))
+    {
+        return Err(storycut_core::CoreError::new(
+            storycut_core::CoreErrorCode::MediaChanged,
+            format!("asset {} changed after it was imported", asset.id),
+        ));
+    }
+    let source_width = probe.width.filter(|width| *width > 0).ok_or_else(|| {
+        storycut_core::CoreError::new(
+            storycut_core::CoreErrorCode::UnsupportedFeature,
+            format!("asset {} has no usable video width", asset.id),
+        )
+    })?;
+    let source_height = probe.height.filter(|height| *height > 0).ok_or_else(|| {
+        storycut_core::CoreError::new(
+            storycut_core::CoreErrorCode::UnsupportedFeature,
+            format!("asset {} has no usable video height", asset.id),
+        )
+    })?;
+    let pan_start = pan_vector(&config.preset, config.pan_amount, true);
+    let pan_end = pan_vector(&config.preset, config.pan_amount, false);
+    let (first_x, first_y, first_clamped) = focal_position(
+        canvas.width,
+        canvas.height,
+        source_width,
+        source_height,
+        config.from_scale,
+        &config.focus,
+        pan_start.0,
+        pan_start.1,
+    );
+    let (last_x, last_y, last_clamped) = focal_position(
+        canvas.width,
+        canvas.height,
+        source_width,
+        source_height,
+        config.to_scale,
+        &config.focus,
+        pan_end.0,
+        pan_end.1,
+    );
+    if let Some((actual_x, actual_y)) = first_clamped {
+        warnings.push(json!({
+            "code": if config.preset.starts_with("pan_") { "PAN_CLAMPED" } else { "FOCUS_CLAMPED" },
+            "message": "取景已限制在圖片邊界內，以避免露出空白。",
+            "clip_id": clip_id,
+            "keyframe": "start",
+            "requested_focus": {"x": config.focus.x, "y": config.focus.y},
+            "actual_focus": {"x": actual_x, "y": actual_y}
+        }));
+    }
+    if let Some((actual_x, actual_y)) = last_clamped {
+        warnings.push(json!({
+            "code": if config.preset.starts_with("pan_") { "PAN_CLAMPED" } else { "FOCUS_CLAMPED" },
+            "message": "取景已限制在圖片邊界內，以避免露出空白。",
+            "clip_id": clip_id,
+            "keyframe": "end",
+            "requested_focus": {"x": config.focus.x, "y": config.focus.y},
+            "actual_focus": {"x": actual_x, "y": actual_y}
+        }));
+    }
+    if visible_duration == 0 || visible_duration % frame_ticks != 0 {
+        return Err(storycut_core::CoreError::validation(format!(
+            "clip {clip_id} duration is not frame aligned"
+        )));
+    }
+    let end_key_tick = visible_duration - frame_ticks;
+    let first = storycut_core::Keyframe {
+        tick: 0,
+        x: first_x,
+        y: first_y,
+        scale: config.from_scale,
+        opacity: 1.0,
+    };
+    let keyframes = if visible_duration == frame_ticks {
+        vec![first]
+    } else {
+        vec![
+            first,
+            storycut_core::Keyframe {
+                tick: end_key_tick,
+                x: last_x,
+                y: last_y,
+                scale: config.to_scale,
+                opacity: 1.0,
+            },
+        ]
+    };
+    Ok(storycut_core::Motion {
+        domain_duration_ticks: visible_duration,
+        sample_offset_tick: 0,
+        fit: storycut_core::FitMode::Cover,
+        avoid_exposed_edges: true,
+        anchor: Anchor { x: 0.5, y: 0.5 },
+        interpolation: storycut_core::Interpolation::Smoothstep,
+        keyframes,
+    })
 }
 
 fn make_track(id: String, name: &str, kind: TrackKind) -> Track {

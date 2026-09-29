@@ -10,6 +10,18 @@
 - 驗證：`cargo test --workspace` 全過（含新增 render 5、core 2、command 2 項）；Python 契約 59/59；`tests/product_acceptance/night_lantern.py` 真 CLI PASS，報告於 `target/night-lantern-acceptance/run-*/夜燈說書/report.json`。
 - 未做：桌面 GUI 尚無旁白組裝面板（CLI／MCP 可用）；把手片段的修剪／分割；ASS 與其他字幕文件同時燒錄；GPU 編碼。合成素材驗收不等於正式 YouTube 成片驗收。
 
+## 2026-09-30：NL-06 shots 直接指定運鏡
+
+- 問題：`storycut_narration_assemble` 組裝完後，使用者還必須手動呼叫 `storycut_focal_motion_apply` 為每個 shot 另外套用運鏡，流程割裂且容易在淡化延長把手後計算錯誤。
+- 修正：
+  1. 將 `plan_focal_motion` 中單一 clip 運鏡計算抽成共用函式 `FocalMotionConfig`、`parse_focal_motion_config` 與 `compute_focal_motion`，供 `focal_motion_apply` 與 `narration_assemble` 100% 複用。
+  2. `storycut_narration_assemble` 的 shot 支援選填 `motion: {preset, focus: {x, y}, from_scale, to_scale, pan_amount}`。
+  3. 圖片延長把手（包含前後 cross dissolve 的半窗）之後，以整段 clip 涵蓋時間作為運鏡時間範圍計算 motion keyframes。
+  4. 取景邊界警告（`FOCUS_CLAMPED`、`PAN_CLAMPED`）寫入回傳的 `warnings` 欄位。
+  5. `contracts/mcp-tools.json` 更新 `storycut_narration_assemble` 的 inputSchema，在 shots items 中宣告 `motion` 物件與列舉值。
+- 測試：新增 `shot_motion_matches_focal_motion_apply` 測試，驗證以同一圖片素材在組裝時直接指定運鏡，與組裝後另行呼叫 `focal_motion_apply` 產生的 motion keyframes 完全相同（各關鍵影格 tick/scale/pos/fit/interpolation 一致）。
+- 驗收：`cargo test --workspace --offline` 全過；`python -X utf8 -m unittest discover -s tests` 全過；`python -X utf8 tools/validate_spec.py` 通過。
+
 ## 2026-09-30：NL-01 storycut_narration_assemble outputSchema 修正
 
 - 問題：`storycut_narration_assemble` 的 `outputSchema` 是從 `storycut_storyboard_assemble` 複製而來，`data` 的 properties／required 與 `narration_assemble()` 實際回傳不符（含 `plan()` 的 `segment_offsets`、`cuts`、`native_cores`、`visual_track_id`、`narration_track_id`、`frame_ticks`、`dissolve_window_ticks`、`lead_in_ticks`、`narration_end_tick`、`total_duration_ticks`、`created_track_ids`，以及 `narration_assemble()` 加的 `committed`、`base_revision`、`changed_ids`、`duration_ticks`）。
