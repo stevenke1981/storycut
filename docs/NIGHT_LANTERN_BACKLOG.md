@@ -2,6 +2,14 @@
 
 分支：`feat/night-lantern-profile`（2026-09-29，commit a047ccf）。先讀 [NIGHT_LANTERN_PROFILE.md](NIGHT_LANTERN_PROFILE.md)、README、AGENTS.md 與 docs/IMPLEMENTATION_STATUS.md 的 2026-09-29 條目。
 
+## 2026-09-30 整合更新
+
+- NL-01 已修正：旁白回傳 schema 對齊實際結果，真 MCP 呼叫及負向 schema 測試通過。
+- NL-02 已修正：響度報告保存在 ready/result job，render、preview、重播與 job_get 共用同一份報告。
+- NL-14 的 CI 驗收已加入：夜燈說書端到端、Python 契約與桌面 bridge／lockfile。清理新增旁白程式的 lint；全庫既有 Clippy 警告仍保留，不宣稱全庫 `-D warnings` 通過。
+- NL-15 依使用者 2026-09-30「整合到主線」的明確授權執行；此授權取代下方原先要求等待人工合併的規劃。
+- NL-03～NL-13 是尚未實作的後續功能清單，不屬於本分支已完成能力；限制仍見 IMPLEMENTATION_STATUS。以下保留原始需求供追蹤。
+
 ## 共通規則
 
 - 一項一個 commit。每項都要附測試，並更新對應的契約、文件與 IMPLEMENTATION_STATUS。提交前跑 `cargo test --workspace --offline`、`python -X utf8 -m unittest discover -s tests`、`python -X utf8 tools/validate_spec.py`。有動到渲染的項目，另跑 `python -X utf8 tests/product_acceptance/night_lantern.py --cli target/debug/storycut.exe`。

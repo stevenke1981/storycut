@@ -35,7 +35,7 @@ GUI、CLI、MCP 仍共用同一 Rust 核心；以下每項都是可編輯、可�
 
 ## 4. 主控響度（輸出選項 `master_loudness`）
 
-`storycut_render_start`／`storycut_preview_range` 的 `options.master_loudness`：
+`storycut_render_start`／`storycut_preview_range` 的頂層參數 `master_loudness`：
 
 ```json
 {"integrated_lufs":-16,"true_peak_db":-1.5,"lra":11}
@@ -43,19 +43,21 @@ GUI、CLI、MCP 仍共用同一 Rust 核心；以下每項都是可編輯、可�
 
 兩段式：先只算混音、以 FFmpeg 參考量表 `ebur128` 量測整合響度與 true peak，再套用線性增益；若增益會讓峰值超過上限，才加上取樣峰值限制器（報告 `peak_limited`）。不用 `loudnorm linear=true`：它在峰值或 LRA 不符時會默默改成動態模式，而且在濾鏡圖內量到的 `input_i` 與 `ebur128` 相差逾 2 LU（實測）。不指定時維持原本「線性加總、不自動正規化」的契約。回傳結果附量測值。
 
+響度報告持久保存在 job 的 `master_loudness`，首次輸出、同鍵重放、`storycut_job_get` 都可讀取相同內容；回應的 `data.master_loudness` 保留為相容欄位。`preview_range` 也採用相同紀錄方式。未指定正規化時不新增此欄位。`lra` 目前僅記錄目標與量測值，不調整動態範圍；峰值限制仍是 sample peak，並非已驗收的 true-peak 上限保證。
+
 ## 5. ASS／SSA 樣式燒錄
 
-`subtitle_mode: "burn"` 支援 ASS／SSA：保留原文件的 Script Info、Styles 與事件文字，只依字幕 `offset_tick` 與輸出範圍改寫 `Dialogue` 起訖時間，交給 libass。VTT 燒錄仍回 `UNSUPPORTED_FEATURE`。同時燒錄多份字幕時須同格式。
+`subtitle_mode: "burn"` 支援 ASS／SSA：保留原文件的 Script Info、Styles 與事件文字，由字幕核心套用 `offset_tick`。範圍輸出與精確影格預覽使用原始字幕時鐘，保留移動、淡入淡出及 karaoke 的事件相對時間。VTT 燒錄仍回 `UNSUPPORTED_FEATURE`。目前一次只支援一份 ASS／SSA；多份 SRT 可合併燒錄，ASS／SSA 不可與其他字幕文件同時燒錄。
 
 ## 6. 高階工具 `storycut_narration_assemble`
 
 依「旁白段落」排出整支故事：
 
-- `narration`：依序的旁白音訊素材，可設片頭長度 `lead_in_seconds`、段間 `gap_seconds`。每段接在上一段之後，時間軸位置精確到音訊取樣。
-- `shots`：依序的畫面；每個畫面宣告涵蓋的旁白段範圍 `segments: [first, last]`（含），圖片長度 = 該範圍的旁白總長。影片（原生生成片）以來源自然長度放入並自動加凍格把手，可用 `anchor` 指定它對齊哪個畫面區間的起點或終點。
+- `narration`：依序的旁白音訊素材，可設段間 `gap_seconds`。片頭長度由 `intro` 推算，沒有獨立的 `lead_in_seconds` 參數。每段接在上一段之後，時間軸位置精確到音訊取樣。
+- `shots`：依序的畫面；每個畫面宣告涵蓋的旁白段範圍 `segments: [first, last]`（從 0 起算、含尾端），圖片長度 = 該範圍的旁白總長。影片（原生生成片）以來源自然長度放入並自動加凍格把手，可用 `align: "start" | "center" | "end"` 指定對齊方式。
 - `intro`／`outro`：片頭（常是 10 秒原生片＋標題）與片尾卡。
 - `transition`：`{"mode":"centered_dissolve","duration_seconds":0.4}` 或 `cut`。
-- `music`：配樂 cue（素材、起訖秒、來源起點、增益、淡入淡出），並可設 `duck_by_narration`。
+- `music`：配樂 cue（素材、起訖秒、來源起點、增益、淡入淡出），預設依旁白 ducking，可設 `ducking` 參數物件調整或 `null` 停用。
 - 原生片長於所屬旁白段時置中外溢到相鄰畫面；第一個／最後一個畫面若是原生片，須用 `align: start`／`end` 貼齊故事邊界；相鄰兩支原生片互相衝突時拒絕。
 - 完成後回傳每段旁白在時間軸的起點（`segment_offsets`）、切點（`cuts`）、原生核心區間（`native_cores`），供字幕對時與檢查。圖片運鏡沿用 `storycut_focal_motion_apply`。
 

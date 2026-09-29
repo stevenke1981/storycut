@@ -2964,6 +2964,8 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
+ "storycut-core",
+ "storycut-subtitle",
  "thiserror 2.0.21",
 ]
 

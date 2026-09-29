@@ -17,6 +17,15 @@ jobs:
           node-version: '24'
           cache: npm
           cache-dependency-path: desktop/package-lock.json
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Contract validation
+        run: |
+          python -m pip install -r requirements-validation.txt
+          python -X utf8 tools/validate_spec.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python -X utf8 -m unittest discover -s tests -q
       - name: Install FFmpeg for real media tests
         shell: pwsh
         run: |
@@ -35,12 +44,25 @@ jobs:
         run: |
           npm ci
           npm run build
+      - name: Desktop bridge tests and locked dependencies
+        run: cargo test --manifest-path desktop/src-tauri/Cargo.toml --locked --lib
       - name: CLI build
         run: cargo build --release -p storycut-cli --locked
       - name: CLI real audio offset acceptance
         run: python -X utf8 tests/product_acceptance/audio_offset.py
       - name: Story assembly, MCP motion and real 72-image render
         run: python -X utf8 tests/product_acceptance/story_workflow.py
+      - name: Night Lantern narration, holds, ducking and ASS acceptance
+        run: python -X utf8 tests/product_acceptance/night_lantern.py --cli target/release/storycut.exe
+      - name: Upload media acceptance reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: media-acceptance-reports
+          path: |
+            target/night-lantern-acceptance/**/report.json
+            target/story-workflow-acceptance/**/report.json
+          if-no-files-found: warn
       - name: Desktop executable
         working-directory: desktop
         run: npm run tauri build -- --no-bundle
