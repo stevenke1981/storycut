@@ -105,6 +105,11 @@
       "input_contract": "contracts/mcp-tools.json#storycut_focal_motion_apply"
     },
     {
+      "tool": "storycut_narration_assemble",
+      "alias": "narration assemble",
+      "input_contract": "contracts/mcp-tools.json#storycut_narration_assemble"
+    },
+    {
       "tool": "storycut_audio_set",
       "alias": "audio set",
       "input_contract": "contracts/mcp-tools.json#storycut_audio_set"

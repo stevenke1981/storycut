@@ -17,6 +17,8 @@ use storycut_core::{
 };
 use uuid::Uuid;
 
+mod narration;
+
 #[derive(Debug)]
 pub struct CommandError {
     pub code: String,
@@ -56,6 +58,7 @@ pub fn supported_tools() -> Vec<String> {
         "storycut_timeline_apply",
         "storycut_storyboard_assemble",
         "storycut_focal_motion_apply",
+        "storycut_narration_assemble",
         "storycut_track_add",
         "storycut_track_update",
         "storycut_clip_add",
@@ -117,6 +120,7 @@ pub fn dispatch(workspace: &Path, tool: &str, args: Value) -> Result<Value, Comm
     match tool {
         "storycut_storyboard_assemble" => storyboard_assemble(workspace, &args),
         "storycut_focal_motion_apply" => focal_motion_apply(workspace, &args),
+        "storycut_narration_assemble" => narration::narration_assemble(workspace, &args),
         "storycut_capabilities" => {
             require_object_keys(&args, &[])?;
             let ffmpeg_available = command_available("ffmpeg", "-version");
@@ -795,6 +799,7 @@ pub fn dispatch(workspace: &Path, tool: &str, args: Value) -> Result<Value, Comm
                     "include_subtitles",
                     "start_tick",
                     "duration_ticks",
+                    "master_loudness",
                 ],
             )?;
             let id = field_str(&args, "project_id")?;
@@ -896,13 +901,16 @@ pub fn dispatch(workspace: &Path, tool: &str, args: Value) -> Result<Value, Comm
                 .ok_or_else(|| CommandError::new("INTERNAL_ERROR", "Project canvas is missing"))?;
             canvas.insert("width".into(), Value::from(width));
             canvas.insert("height".into(), Value::from(height));
-            let options = json!({
+            let mut options = json!({
                 "range_start_tick":start_tick,
                 "range_end_tick":end_tick,
                 "subtitle_mode":if include_subtitles {"burn"} else {"none"},
                 "encoder":"h264_cpu",
                 "overwrite":false
             });
+            if let Some(loudness) = args.get("master_loudness").filter(|v| !v.is_null()) {
+                options["master_loudness"] = loudness.clone();
+            }
             let project_path = store.project_path().map_err(core_error)?;
             let rendered = storycut_render::render_with_root(
                 &resized_project,
@@ -959,6 +967,7 @@ pub fn dispatch(workspace: &Path, tool: &str, args: Value) -> Result<Value, Comm
                     "encoder",
                     "range_start_tick",
                     "range_end_tick",
+                    "master_loudness",
                 ],
             )?;
             let id = field_str(&args, "project_id")?;
@@ -1486,6 +1495,8 @@ fn plan_storyboard(
                     stream_index: video_stream.index,
                     motion,
                     audio_policy: VideoAudioPolicy::Muted,
+                    hold_head_ticks: 0,
+                    hold_tail_ticks: 0,
                 };
                 if original_audio
                     && asset
@@ -1566,6 +1577,8 @@ fn plan_storyboard(
                     stream_index: video_stream.index,
                     motion: default_motion(duration, frame_ticks),
                     audio_policy: VideoAudioPolicy::Muted,
+                    hold_head_ticks: 0,
+                    hold_tail_ticks: 0,
                 })
             }
             AssetKind::Audio => unreachable!("visual kinds checked above"),
@@ -2192,6 +2205,7 @@ fn make_track(id: String, name: &str, kind: TrackKind) -> Track {
         muted: false,
         solo: false,
         gain_db: 0.0,
+        ducking: None,
     }
 }
 
@@ -3264,6 +3278,7 @@ mod tests {
                         muted: false,
                         solo: false,
                         gain_db: 0.0,
+                        ducking: None,
                     },
                 }],
             )
@@ -3311,6 +3326,7 @@ mod tests {
                         muted: false,
                         solo: false,
                         gain_db: 0.0,
+                        ducking: None,
                     },
                 }],
             )

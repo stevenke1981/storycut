@@ -9,6 +9,8 @@ serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
 sha2.workspace = true
+storycut-core = { path = "../storycut-core" }
+storycut-subtitle = { path = "../storycut-subtitle" }
 
 [dev-dependencies]
 tempfile = "3.23"

@@ -235,6 +235,41 @@ pub fn validate_project(project: &Project) -> Result<(), ProjectValidationError>
         }
         tracks.insert(track.id.as_str(), track);
     }
+    for track in &project.tracks {
+        let Some(ducking) = &track.ducking else {
+            continue;
+        };
+        if track.kind != TrackKind::Audio {
+            return Err(ProjectValidationError::new(format!(
+                "track {} ducking requires an audio track",
+                track.id
+            )));
+        }
+        let source = tracks
+            .get(ducking.source_track_id.as_str())
+            .ok_or_else(|| {
+                ProjectValidationError::new(format!(
+                    "track {} ducking source {} is missing",
+                    track.id, ducking.source_track_id
+                ))
+            })?;
+        if source.id == track.id || source.kind != TrackKind::Audio || source.ducking.is_some() {
+            return Err(ProjectValidationError::new(format!(
+                "track {} ducking source must be a different, non-ducked audio track",
+                track.id
+            )));
+        }
+        if !finite_between(ducking.threshold, 0.000_976_563, 1.0)
+            || !finite_between(ducking.ratio, 1.0, 20.0)
+            || !finite_between(ducking.attack_ms, 0.01, 2000.0)
+            || !finite_between(ducking.release_ms, 0.01, 9000.0)
+        {
+            return Err(ProjectValidationError::new(format!(
+                "track {} ducking parameters are outside the supported range",
+                track.id
+            )));
+        }
+    }
 
     let mut clips = HashMap::new();
     for clip in &project.clips {
@@ -301,6 +336,16 @@ pub fn validate_project(project: &Project) -> Result<(), ProjectValidationError>
                     )));
                 }
                 validate_frame_range(project, clip)?;
+                let frame = project.frame_ticks().expect("frame rate checked first");
+                if video.hold_head_ticks % frame != 0
+                    || video.hold_tail_ticks % frame != 0
+                    || video.source_span_ticks().is_none_or(|span| span == 0)
+                {
+                    return Err(ProjectValidationError::new(format!(
+                        "video clip {} holds must align to frames and leave a nonempty source range",
+                        video.id
+                    )));
+                }
                 validate_motion(project, &video.motion, video.duration_ticks, &video.id)?;
             }
             Clip::Audio(audio) => {
@@ -339,8 +384,8 @@ pub fn validate_project(project: &Project) -> Result<(), ProjectValidationError>
             .filter(|_| !matches!(clip, Clip::Image(_)))
         {
             let source_end = clip
-                .source_in_tick()
-                .checked_add(clip.duration_ticks())
+                .source_span_ticks()
+                .and_then(|span| clip.source_in_tick().checked_add(span))
                 .ok_or_else(|| {
                     ProjectValidationError::new(format!(
                         "clip {} source range overflows",
@@ -384,6 +429,12 @@ pub fn validate_project(project: &Project) -> Result<(), ProjectValidationError>
         if !linked_clips.insert(video.id.as_str()) || !linked_clips.insert(audio.id.as_str()) {
             return Err(ProjectValidationError::new(format!(
                 "link {} reuses a linked clip",
+                link.id
+            )));
+        }
+        if video.has_holds() {
+            return Err(ProjectValidationError::new(format!(
+                "link {} cannot link a video clip with frozen holds",
                 link.id
             )));
         }
