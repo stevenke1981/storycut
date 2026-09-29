@@ -137,9 +137,13 @@ def validate_model(project: dict[str, Any]) -> list[str]:
                 problem('MOTION_DOMAIN', cid)
             keyframes = m['keyframes']
             ticks = [k['tick'] for k in keyframes]
-            expected = [0] if domain == frame else [0, domain - frame]
-            if ticks != expected:
-                problem('KEYFRAME_ENDPOINTS', cid)
+            last = domain - frame
+            if domain == frame:
+                if ticks != [0]:
+                    problem('KEYFRAME_ENDPOINTS', cid)
+            else:
+                if not ticks or ticks[0] != 0 or ticks[-1] != last or any(b <= a for a, b in zip(ticks, ticks[1:])):
+                    problem('KEYFRAME_ENDPOINTS', cid)
         else:
             # Linked A/V endpoints are exact video ticks and can fall between
             # audio samples (e.g. 30000/1001 fps). Quantize absolute endpoints

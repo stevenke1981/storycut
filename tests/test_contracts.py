@@ -128,8 +128,9 @@ class ContractTests(unittest.TestCase):
         self.by_id['clip-a']['motion']['keyframes'][0]['scale'] = 0
         self.assert_invalid('SCHEMA')
 
-    def test_more_than_two_keys_rejected_in_first_release(self):
-        self.by_id['clip-a']['motion']['keyframes'].append(copy.deepcopy(self.by_id['clip-a']['motion']['keyframes'][0]))
+    def test_more_than_64_keys_rejected(self):
+        first = self.by_id['clip-a']['motion']['keyframes'][0]
+        self.by_id['clip-a']['motion']['keyframes'] = [copy.deepcopy(first) for _ in range(65)]
         self.assert_invalid('SCHEMA')
 
     def test_same_track_overlap_requires_transition(self):

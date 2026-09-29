@@ -10,6 +10,22 @@
 - 驗證：`cargo test --workspace` 全過（含新增 render 5、core 2、command 2 項）；Python 契約 59/59；`tests/product_acceptance/night_lantern.py` 真 CLI PASS，報告於 `target/night-lantern-acceptance/run-*/夜燈說書/report.json`。
 - 未做：桌面 GUI 尚無旁白組裝面板（CLI／MCP 可用）；把手片段的修剪／分割；ASS 與其他字幕文件同時燒錄；GPU 編碼。合成素材驗收不等於正式 YouTube 成片驗收。
 
+## 2026-09-30：NL-04 overlays 支援淡入淡出與位置、片頭標題 overlay
+
+- 問題：串場字卡或標題 PNG 只能整張硬出現、硬消失。片頭標題需要「1.0 秒淡入、6.8 秒淡出」（R22 規則），且渲染器原本只支援最多 2 個 keyframes，無法在單一片段上表達「淡入→維持→淡出」的多段關鍵影格。
+- 修正：
+  1. `storycut-render`：擴展 `parse_motion` 支援最多 64 個 keyframes（嚴格遞增且涵蓋 tick 0 到 last_domain_tick）；在 `motion_expression` 實作多段 piecewise 線性插值表達式（嵌套 `if(lt(T, ...), ...)`），2 個 keyframe 時保持原生高效插值。
+  2. `storycut-core`：更新 `validate_motion` 支援最多 64 個 keyframes，驗證嚴格遞增並覆蓋端點。
+  3. `contracts/`：更新 `project.schema.json`、`operations.schema.json`、`mcp-tools.json` 中的 motion keyframes `maxItems` 為 64；`validate_spec.py` 與 `test_contracts.py` 同步支援多段關鍵影格檢驗。
+  4. `storycut-command`（`narration.rs`）：
+     - `overlays.items` 支援 `fade_in_seconds`、`fade_out_seconds`、`scale`、`x`、`y`，自動構建 frame-aligned 的 opacity 與位置 keyframes。
+     - `intro` 支援 `title_overlay_asset_id` 及可選的 `title_duration_seconds`（預設 7.8s）、`title_fade_in_seconds`（預設 1.0s）、`title_fade_out_seconds`（預設 1.0s）、`title_scale`、`title_x`、`title_y`。
+     - 若 intro 含有標題 overlay 或有 `overlays.items`，自動建立 `overlay_track`，標題 overlay 預設自 tick 0 起算並防止與後續字卡重疊。
+- 測試：
+  1. `crates/storycut-command/src/narration.rs` 新增單元測試 `narration_assemble_overlay_fade_and_intro_title`，驗證組裝產生正確的 overlay track、片頭標題與字卡 clips，包含 4 個 opacity/scale/x/y 關鍵影格。
+  2. `crates/storycut-render/tests/night_lantern.rs` 新增真 FFmpeg 驗收測試 `overlay_fade_in_and_out_and_intro_title`：抽格實測淡入中段（0.5s）alpha 約為 50%（亮度 128 / 255），標題在 6.8 + 1.0 = 7.8 秒後完全消失（8.0s 實測亮度 < 5）。
+- 驗收：`cargo test --workspace --offline` 全過；`python -X utf8 -m unittest discover -s tests` 59/59 全過；`python -X utf8 tools/validate_spec.py` 通過。
+
 ## 2026-09-30：NL-06 shots 直接指定運鏡
 
 - 問題：`storycut_narration_assemble` 組裝完後，使用者還必須手動呼叫 `storycut_focal_motion_apply` 為每個 shot 另外套用運鏡，流程割裂且容易在淡化延長把手後計算錯誤。

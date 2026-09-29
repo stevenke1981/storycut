@@ -468,3 +468,143 @@ fn ass_burn_keeps_styles_and_follows_offset_and_range() {
         "no cue outside: {dark_before} {dark_after}"
     );
 }
+
+#[test]
+fn overlay_fade_in_and_out_and_intro_title() {
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = tmp.path();
+    still(dir, "black.png", "black");
+    let white_path = dir.join("white.png");
+    // Create an RGBA white still with alpha=255
+    ffmpeg(&[
+        "-f",
+        "lavfi",
+        "-i",
+        "color=c=white:s=160x90:d=1,format=rgba",
+        "-frames:v",
+        "1",
+        white_path.to_str().unwrap(),
+    ]);
+
+    let s = TIMEBASE;
+    let fps = 10_u64;
+    let frame = s / fps; // 0.1s per frame
+    let total_ticks = 10 * s; // 10.0s total background
+    let title_duration = 78 * frame; // 7.8s
+    let last_domain_tick = title_duration - frame; // 7.7s (tick 77)
+
+    let title_motion = json!({
+        "domain_duration_ticks": title_duration,
+        "sample_offset_tick": 0,
+        "fit": "cover",
+        "avoid_exposed_edges": false,
+        "anchor": {"x": 0.5, "y": 0.5},
+        "interpolation": "linear",
+        "keyframes": [
+            {"tick": 0, "x": 0, "y": 0, "scale": 1, "opacity": 0.0},
+            {"tick": 10 * frame, "x": 0, "y": 0, "scale": 1, "opacity": 1.0}, // 1.0s fade in
+            {"tick": 68 * frame, "x": 0, "y": 0, "scale": 1, "opacity": 1.0}, // 6.8s start fade out
+            {"tick": last_domain_tick, "x": 0, "y": 0, "scale": 1, "opacity": 0.0}
+        ]
+    });
+
+    let project = json!({
+        "schema_version": "0.2.0-draft",
+        "project_id": "nl-overlay-test",
+        "revision": 1,
+        "name": "NL Overlay Test",
+        "timebase": s,
+        "canvas": {
+            "width": 160,
+            "height": 90,
+            "fps": {"num": 10, "den": 1},
+            "background": "#000000",
+            "color_mode": "sdr_bt709"
+        },
+        "audio_sample_rate": 48000,
+        "notes": [],
+        "assets": [
+            asset("bg", "image", "black.png"),
+            asset("title_ov", "image", "white.png")
+        ],
+        "tracks": [
+            track("v", "video"),
+            track("ov", "video")
+        ],
+        "clips": [
+            {
+                "id": "bg_clip",
+                "track_id": "v",
+                "asset_id": "bg",
+                "kind": "image",
+                "start_tick": 0,
+                "duration_ticks": total_ticks,
+                "source_in_tick": 0,
+                "motion": {
+                    "domain_duration_ticks": total_ticks,
+                    "sample_offset_tick": 0,
+                    "fit": "cover",
+                    "avoid_exposed_edges": false,
+                    "anchor": {"x": 0.5, "y": 0.5},
+                    "interpolation": "linear",
+                    "keyframes": [
+                        {"tick": 0, "x": 0, "y": 0, "scale": 1, "opacity": 1},
+                        {"tick": total_ticks - frame, "x": 0, "y": 0, "scale": 1, "opacity": 1}
+                    ]
+                }
+            },
+            {
+                "id": "title_clip",
+                "track_id": "ov",
+                "asset_id": "title_ov",
+                "kind": "image",
+                "start_tick": 0,
+                "duration_ticks": title_duration,
+                "source_in_tick": 0,
+                "motion": title_motion
+            }
+        ],
+        "transitions": [],
+        "links": [],
+        "subtitles": []
+    });
+
+    let output = dir.join("overlay_test.mp4");
+    let report = render(
+        &project,
+        &dir.join("project.storycut.json"),
+        &output,
+        &json!({
+            "range_start_tick": 0,
+            "range_end_tick": total_ticks,
+            "subtitle_mode": "none",
+            "encoder": "h264_cpu"
+        }),
+    )
+    .unwrap_or_else(|error| panic!("render failed [{}]: {error}", error.code()));
+    assert_eq!(report.frame_count, 100);
+
+    // Acceptance 1: Fade-in midpoint (0.5s): alpha should be around 50% (brightness ~128 / 255)
+    let mid_fade_in_rgb = frame_rgb(&output, 0.5);
+    assert!(
+        (100.0..=155.0).contains(&mid_fade_in_rgb.0),
+        "mid-fade alpha around 50%: got {}",
+        mid_fade_in_rgb.0
+    );
+
+    // Midpoint peak (3.0s): fully visible (~255)
+    let peak_rgb = frame_rgb(&output, 3.0);
+    assert!(
+        peak_rgb.0 > 240.0,
+        "fully visible during body: got {}",
+        peak_rgb.0
+    );
+
+    // Acceptance 2: Disappears completely after 6.8 + 1.0 = 7.8s (probed at 8.0s)
+    let after_disappear_rgb = frame_rgb(&output, 8.0);
+    assert!(
+        after_disappear_rgb.0 < 5.0,
+        "title completely gone at 6.8 + 1.0s: got {}",
+        after_disappear_rgb.0
+    );
+}

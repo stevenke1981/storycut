@@ -16,9 +16,9 @@ use super::{
 use serde_json::{Value, json};
 use std::path::Path;
 use storycut_core::{
-    Asset, AssetKind, AudioClip, AudioSettings, Clip, CoreError, Ducking, ImageClip, MAX_TICKS,
-    Operation, Project, ProjectStore, StreamKind, TIMEBASE, TrackKind, Transition, TransitionKind,
-    VideoAudioPolicy, VideoClip,
+    Anchor, Asset, AssetKind, AudioClip, AudioSettings, Clip, CoreError, Ducking, FitMode,
+    ImageClip, Interpolation, Keyframe, Motion, MAX_TICKS, Operation, Project, ProjectStore,
+    StreamKind, TIMEBASE, TrackKind, Transition, TransitionKind, VideoAudioPolicy, VideoClip,
 };
 
 const MAX_SEGMENTS: usize = 400;
@@ -223,6 +223,70 @@ fn visual_from(
     }
 }
 
+fn build_overlay_motion(
+    duration_ticks: u64,
+    frame_ticks: u64,
+    fade_in_ticks: u64,
+    fade_out_ticks: u64,
+    scale: f64,
+    x: f64,
+    y: f64,
+) -> Motion {
+    let last_domain_tick = duration_ticks.saturating_sub(frame_ticks);
+    let keyframes = if last_domain_tick == 0 {
+        vec![Keyframe {
+            tick: 0,
+            x,
+            y,
+            scale,
+            opacity: if fade_in_ticks > 0 { 0.0 } else { 1.0 },
+        }]
+    } else {
+        let mut raw_keys = vec![(0, if fade_in_ticks > 0 { 0.0 } else { 1.0 })];
+        if fade_in_ticks > 0 {
+            let in_tick = fade_in_ticks.min(last_domain_tick);
+            if in_tick > 0 && in_tick < last_domain_tick {
+                raw_keys.push((in_tick, 1.0));
+            }
+        }
+        if fade_out_ticks > 0 {
+            let out_start = duration_ticks.saturating_sub(fade_out_ticks).min(last_domain_tick);
+            if out_start > 0 && out_start < last_domain_tick {
+                if let Some(last) = raw_keys.last() {
+                    if out_start > last.0 {
+                        raw_keys.push((out_start, 1.0));
+                    }
+                }
+            }
+        }
+        if let Some(last) = raw_keys.last() {
+            if last.0 < last_domain_tick {
+                raw_keys.push((last_domain_tick, if fade_out_ticks > 0 { 0.0 } else { 1.0 }));
+            }
+        }
+        raw_keys
+            .into_iter()
+            .map(|(tick, opacity)| Keyframe {
+                tick,
+                x,
+                y,
+                scale,
+                opacity,
+            })
+            .collect()
+    };
+
+    Motion {
+        domain_duration_ticks: duration_ticks,
+        sample_offset_tick: 0,
+        fit: FitMode::Cover,
+        avoid_exposed_edges: false,
+        anchor: Anchor { x: 0.5, y: 0.5 },
+        interpolation: Interpolation::Linear,
+        keyframes,
+    }
+}
+
 #[allow(clippy::too_many_lines)]
 fn plan(
     workspace: &Path,
@@ -283,10 +347,22 @@ fn plan(
     // ---- Intro -------------------------------------------------------------
     let mut visuals: Vec<Visual> = Vec::new();
     let mut lead_in = 0_u64;
+    let mut intro_title_overlay = None;
     if let Some(intro) = args.get("intro").filter(|v| !v.is_null()) {
         require_object_keys(
             intro,
-            &["asset_id", "source_in_seconds", "duration_seconds"],
+            &[
+                "asset_id",
+                "source_in_seconds",
+                "duration_seconds",
+                "title_overlay_asset_id",
+                "title_duration_seconds",
+                "title_fade_in_seconds",
+                "title_fade_out_seconds",
+                "title_scale",
+                "title_x",
+                "title_y",
+            ],
         )
         .map_err(command_to_core)?;
         let (mut visual, image_duration) = visual_from(project, intro, frame, "intro", "intro")?;
@@ -300,6 +376,80 @@ fn plan(
         visual.cut_out = slot;
         lead_in = slot;
         visuals.push(visual);
+
+        if let Some(title_asset_id) = intro.get("title_overlay_asset_id").and_then(Value::as_str) {
+            if !title_asset_id.is_empty() {
+                let asset = find_asset(project, title_asset_id)?;
+                let title_duration = match intro.get("title_duration_seconds") {
+                    Some(val) => seconds_value_to_ticks(val, "intro.title_duration_seconds", false)?,
+                    None => match asset.kind {
+                        AssetKind::Image => {
+                            let default_ticks = (7.8 * TIMEBASE as f64).round() as u64;
+                            default_ticks.min(slot)
+                        }
+                        AssetKind::Video => {
+                            asset.duration_ticks.ok_or_else(|| {
+                                fail(format!(
+                                    "title overlay video {title_asset_id} has no probed duration"
+                                ))
+                            })?
+                        }
+                        AssetKind::Audio => {
+                            return Err(fail(format!(
+                                "title overlay asset {title_asset_id} is not visual"
+                            )));
+                        }
+                    },
+                };
+                let title_duration = round_to_grid(title_duration, frame)?;
+                if title_duration == 0 {
+                    return Err(fail("intro.title_duration_seconds rounds to zero frames"));
+                }
+                let default_fade_in = (1.0 * TIMEBASE as f64).round() as u64;
+                let default_fade_out = (1.0 * TIMEBASE as f64).round() as u64;
+                let title_fade_in = match intro.get("title_fade_in_seconds") {
+                    Some(val) => round_to_grid(
+                        seconds_value_to_ticks(val, "intro.title_fade_in_seconds", true)?,
+                        frame,
+                    )?,
+                    None => round_to_grid(default_fade_in.min(title_duration / 2), frame)?,
+                };
+                let title_fade_out = match intro.get("title_fade_out_seconds") {
+                    Some(val) => round_to_grid(
+                        seconds_value_to_ticks(val, "intro.title_fade_out_seconds", true)?,
+                        frame,
+                    )?,
+                    None => round_to_grid(
+                        default_fade_out.min(title_duration.saturating_sub(title_fade_in)),
+                        frame,
+                    )?,
+                };
+                if title_fade_in + title_fade_out > title_duration {
+                    return Err(fail("intro title overlay fades exceed title duration"));
+                }
+                let scale = finite_number(intro.get("title_scale"), 1.0, "intro.title_scale")?;
+                let x = finite_number(intro.get("title_x"), 0.0, "intro.title_x")?;
+                let y = finite_number(intro.get("title_y"), 0.0, "intro.title_y")?;
+                if !(-4.0..=4.0).contains(&x) {
+                    return Err(fail("intro.title_x must be between -4.0 and 4.0"));
+                }
+                if !(-4.0..=4.0).contains(&y) {
+                    return Err(fail("intro.title_y must be between -4.0 and 4.0"));
+                }
+                if !(1e-6..=16.0).contains(&scale) {
+                    return Err(fail("intro.title_scale must be between 1e-6 and 16.0"));
+                }
+                intro_title_overlay = Some((
+                    title_asset_id.to_owned(),
+                    title_duration,
+                    title_fade_in,
+                    title_fade_out,
+                    scale,
+                    x,
+                    y,
+                ));
+            }
+        }
     }
 
     // ---- Narration ---------------------------------------------------------
@@ -795,101 +945,182 @@ fn plan(
 
     // ---- Overlays (alpha cards, name plates, quotes) -----------------------
     let mut overlay_track = None;
-    if let Some(overlays) = args.get("overlays").filter(|v| !v.is_null()) {
-        require_object_keys(overlays, &["track_name", "items"]).map_err(command_to_core)?;
+    let has_overlays = args.get("overlays").is_some_and(|v| !v.is_null());
+    if has_overlays || intro_title_overlay.is_some() {
+        let overlays = args.get("overlays").filter(|v| !v.is_null());
+        if let Some(ov) = overlays {
+            require_object_keys(ov, &["track_name", "items"]).map_err(command_to_core)?;
+        }
         let track_id = generated_id(project, key, "narration-overlay-track", 0);
+        let track_name = overlays
+            .and_then(|ov| ov.get("track_name"))
+            .and_then(Value::as_str)
+            .unwrap_or("串場字卡");
         operations.push(Operation::TrackAdd {
-            track: make_track(
-                track_id.clone(),
-                overlays
-                    .get("track_name")
-                    .and_then(Value::as_str)
-                    .unwrap_or("串場字卡"),
-                TrackKind::Video,
-            ),
+            track: make_track(track_id.clone(), track_name, TrackKind::Video),
         });
         created_track_ids.push(track_id.clone());
-        let items = overlays
-            .get("items")
-            .and_then(Value::as_array)
-            .filter(|items| !items.is_empty() && items.len() <= 100)
-            .ok_or_else(|| fail("overlays.items must contain 1 to 100 items"))?;
+
         let mut placed: Vec<(u64, u64)> = Vec::new();
-        for (index, item) in items.iter().enumerate() {
-            let context = format!("overlays.items[{index}]");
-            require_object_keys(
-                item,
-                &[
-                    "asset_id",
-                    "segment",
-                    "offset_seconds",
-                    "at_seconds",
-                    "duration_seconds",
-                ],
-            )
-            .map_err(command_to_core)?;
-            let (visual, image_duration) = visual_from(project, item, frame, "overlay", &context)?;
-            let at = match (item.get("segment"), item.get("at_seconds")) {
-                (Some(segment), None) => {
-                    let segment = segment
-                        .as_u64()
-                        .map(|value| value as usize)
-                        .filter(|value| *value < starts.len())
-                        .ok_or_else(|| fail(format!("{context}.segment is out of range")))?;
-                    let offset =
-                        optional_seconds(item.get("offset_seconds"), "offset_seconds", true)?
-                            .unwrap_or(0);
-                    starts[segment] + offset
-                }
-                (None, Some(at)) => seconds_value_to_ticks(at, "at_seconds", true)?,
-                _ => {
-                    return Err(fail(format!(
-                        "{context} needs exactly one of segment or at_seconds"
-                    )));
-                }
-            };
-            let at = round_to_grid(at, frame)?;
-            let duration = match visual.kind {
-                AssetKind::Image => image_duration.ok_or_else(|| {
-                    fail(format!("{context}: image overlays need duration_seconds"))
-                })?,
-                _ => visual.core,
-            };
-            let end = at + duration;
-            if end > total {
-                return Err(fail(format!("{context} runs past the end of the story")));
-            }
-            if placed.iter().any(|(a, b)| at < *b && *a < end) {
-                return Err(fail(format!("{context} overlaps another overlay")));
-            }
-            placed.push((at, end));
-            let clip_id = generated_id(project, key, "narration-overlay-clip", index);
-            let asset = find_asset(project, &visual.asset_id)?;
-            let clip = match visual.kind {
+        let mut overlay_clip_index = 0_usize;
+
+        if let Some((title_asset_id, title_duration, title_fade_in, title_fade_out, scale, x, y)) =
+            intro_title_overlay
+        {
+            let asset = find_asset(project, &title_asset_id)?;
+            let clip_id = generated_id(project, key, "narration-overlay-clip", overlay_clip_index);
+            overlay_clip_index += 1;
+            let motion = build_overlay_motion(
+                title_duration,
+                frame,
+                title_fade_in,
+                title_fade_out,
+                scale,
+                x,
+                y,
+            );
+            let clip = match asset.kind {
                 AssetKind::Image => Clip::Image(ImageClip {
                     id: clip_id,
                     track_id: track_id.clone(),
-                    asset_id: visual.asset_id.clone(),
-                    start_tick: at,
-                    duration_ticks: duration,
+                    asset_id: title_asset_id,
+                    start_tick: 0,
+                    duration_ticks: title_duration,
                     source_in_tick: 0,
-                    motion: default_motion(duration, frame),
+                    motion,
                 }),
                 _ => Clip::Video(VideoClip {
                     id: clip_id,
                     track_id: track_id.clone(),
-                    asset_id: visual.asset_id.clone(),
-                    start_tick: at,
-                    duration_ticks: duration,
-                    source_in_tick: visual.source_in,
+                    asset_id: title_asset_id,
+                    start_tick: 0,
+                    duration_ticks: title_duration,
+                    source_in_tick: 0,
                     stream_index: stream_index(asset, StreamKind::Video)?,
-                    motion: default_motion(duration, frame),
+                    motion,
                     audio_policy: VideoAudioPolicy::Muted,
                     hold_head_ticks: 0,
                     hold_tail_ticks: 0,
                 }),
             };
+            placed.push((0, title_duration));
             operations.push(Operation::ClipAdd { clip });
+        }
+
+        if let Some(ov) = overlays {
+            let items = ov
+                .get("items")
+                .and_then(Value::as_array)
+                .filter(|items| !items.is_empty() && items.len() <= 100)
+                .ok_or_else(|| fail("overlays.items must contain 1 to 100 items"))?;
+            for (index, item) in items.iter().enumerate() {
+                let context = format!("overlays.items[{index}]");
+                require_object_keys(
+                    item,
+                    &[
+                        "asset_id",
+                        "segment",
+                        "offset_seconds",
+                        "at_seconds",
+                        "duration_seconds",
+                        "fade_in_seconds",
+                        "fade_out_seconds",
+                        "scale",
+                        "x",
+                        "y",
+                    ],
+                )
+                .map_err(command_to_core)?;
+                let (visual, image_duration) = visual_from(project, item, frame, "overlay", &context)?;
+                let at = match (item.get("segment"), item.get("at_seconds")) {
+                    (Some(segment), None) => {
+                        let segment = segment
+                            .as_u64()
+                            .map(|value| value as usize)
+                            .filter(|value| *value < starts.len())
+                            .ok_or_else(|| fail(format!("{context}.segment is out of range")))?;
+                        let offset =
+                            optional_seconds(item.get("offset_seconds"), "offset_seconds", true)?
+                                .unwrap_or(0);
+                        starts[segment] + offset
+                    }
+                    (None, Some(at)) => seconds_value_to_ticks(at, "at_seconds", true)?,
+                    _ => {
+                        return Err(fail(format!(
+                            "{context} needs exactly one of segment or at_seconds"
+                        )));
+                    }
+                };
+                let at = round_to_grid(at, frame)?;
+                let duration = match visual.kind {
+                    AssetKind::Image => image_duration.ok_or_else(|| {
+                        fail(format!("{context}: image overlays need duration_seconds"))
+                    })?,
+                    _ => visual.core,
+                };
+                let end = at + duration;
+                if end > total {
+                    return Err(fail(format!("{context} runs past the end of the story")));
+                }
+                if placed.iter().any(|(a, b)| at < *b && *a < end) {
+                    return Err(fail(format!("{context} overlaps another overlay")));
+                }
+                placed.push((at, end));
+
+                let fade_in = optional_seconds(item.get("fade_in_seconds"), "fade_in_seconds", true)?
+                    .map(|ticks| round_to_grid(ticks, frame))
+                    .transpose()?
+                    .unwrap_or(0);
+                let fade_out = optional_seconds(item.get("fade_out_seconds"), "fade_out_seconds", true)?
+                    .map(|ticks| round_to_grid(ticks, frame))
+                    .transpose()?
+                    .unwrap_or(0);
+                if fade_in + fade_out > duration {
+                    return Err(fail(format!("{context} fades exceed the overlay duration")));
+                }
+                let scale = finite_number(item.get("scale"), 1.0, &format!("{context}.scale"))?;
+                let x = finite_number(item.get("x"), 0.0, &format!("{context}.x"))?;
+                let y = finite_number(item.get("y"), 0.0, &format!("{context}.y"))?;
+                if !(-4.0..=4.0).contains(&x) {
+                    return Err(fail(format!("{context}.x must be between -4.0 and 4.0")));
+                }
+                if !(-4.0..=4.0).contains(&y) {
+                    return Err(fail(format!("{context}.y must be between -4.0 and 4.0")));
+                }
+                if !(1e-6..=16.0).contains(&scale) {
+                    return Err(fail(format!("{context}.scale must be between 1e-6 and 16.0")));
+                }
+
+                let clip_id = generated_id(project, key, "narration-overlay-clip", overlay_clip_index);
+                overlay_clip_index += 1;
+                let motion = build_overlay_motion(duration, frame, fade_in, fade_out, scale, x, y);
+                let asset = find_asset(project, &visual.asset_id)?;
+                let clip = match visual.kind {
+                    AssetKind::Image => Clip::Image(ImageClip {
+                        id: clip_id,
+                        track_id: track_id.clone(),
+                        asset_id: visual.asset_id.clone(),
+                        start_tick: at,
+                        duration_ticks: duration,
+                        source_in_tick: 0,
+                        motion,
+                    }),
+                    _ => Clip::Video(VideoClip {
+                        id: clip_id,
+                        track_id: track_id.clone(),
+                        asset_id: visual.asset_id.clone(),
+                        start_tick: at,
+                        duration_ticks: duration,
+                        source_in_tick: visual.source_in,
+                        stream_index: stream_index(asset, StreamKind::Video)?,
+                        motion,
+                        audio_policy: VideoAudioPolicy::Muted,
+                        hold_head_ticks: 0,
+                        hold_tail_ticks: 0,
+                    }),
+                };
+                operations.push(Operation::ClipAdd { clip });
+            }
         }
         overlay_track = Some(track_id);
     }
@@ -1310,4 +1541,133 @@ mod tests {
         assert_eq!(motion1.avoid_exposed_edges, motion2.avoid_exposed_edges);
         assert_eq!(motion1.interpolation, motion2.interpolation);
     }
+
+    #[test]
+    fn narration_assemble_overlay_fade_and_intro_title() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = ProjectStore::create(
+            dir.path(),
+            "story.storycut.json",
+            "overlay-test",
+            Canvas::default(),
+            48_000,
+            "create",
+        )
+        .unwrap();
+
+        let s = TIMEBASE;
+        let mut assets = vec![
+            asset("intro-video", AssetKind::Video, Some(10 * s)),
+            asset("title-card", AssetKind::Image, None),
+            asset("quote-card", AssetKind::Image, None),
+            asset("shot-img", AssetKind::Image, None),
+            asset("outro", AssetKind::Image, None),
+        ];
+        for (index, samples) in SEGMENTS.iter().enumerate() {
+            assets.push(asset(
+                &format!("seg{index}"),
+                AssetKind::Audio,
+                Some(samples * SAMPLE),
+            ));
+        }
+        store.import_assets(0, "import", false, assets).unwrap();
+        let project_id = store.snapshot().unwrap().project_id;
+
+        let req = json!({
+            "project_id": project_id,
+            "expected_revision": 1,
+            "idempotency_key": "assemble-with-overlays",
+            "dry_run": false,
+            "intro": {
+                "asset_id": "intro-video",
+                "title_overlay_asset_id": "title-card",
+                "title_duration_seconds": 7.8,
+                "title_fade_in_seconds": 1.0,
+                "title_fade_out_seconds": 1.0,
+                "title_scale": 0.85,
+                "title_x": 0.05,
+                "title_y": -0.1
+            },
+            "narration": {
+                "segments": (0..5).map(|i| json!({"asset_id": format!("seg{i}")})).collect::<Vec<_>>()
+            },
+            "shots": [
+                {
+                    "asset_id": "shot-img",
+                    "segments": [0, 4]
+                }
+            ],
+            "overlays": {
+                "track_name": "串場與引句",
+                "items": [
+                    {
+                        "asset_id": "quote-card",
+                        "at_seconds": 8.0,
+                        "duration_seconds": 3.0,
+                        "fade_in_seconds": 0.5,
+                        "fade_out_seconds": 0.5,
+                        "scale": 0.9,
+                        "x": 0.0,
+                        "y": 0.2
+                    }
+                ]
+            },
+            "transition": {"mode": "cut"}
+        });
+
+        let res = dispatch(dir.path(), "storycut_narration_assemble", req).unwrap();
+        assert_eq!(res["ok"], true);
+        let project = load(dir.path(), &project_id);
+
+        let overlay_track_id = res["data"]["overlay_track_id"].as_str().unwrap();
+        let overlay_clips: Vec<_> = project.clips.iter().filter(|c| c.track_id() == overlay_track_id).collect();
+        assert_eq!(overlay_clips.len(), 2);
+
+        // 1. Intro title overlay clip
+        let title_clip = overlay_clips.iter().find(|c| c.asset_id() == "title-card").unwrap();
+        assert_eq!(title_clip.start_tick(), 0);
+        let frame = project.frame_ticks().unwrap();
+        let expected_title_duration = (7.8 * s as f64).round() as u64;
+        assert_eq!(title_clip.duration_ticks(), (expected_title_duration / frame) * frame);
+
+        let title_motion = match title_clip {
+            Clip::Image(img) => &img.motion,
+            _ => panic!("expected image clip"),
+        };
+        assert_eq!(title_motion.avoid_exposed_edges, false);
+        assert_eq!(title_motion.keyframes.len(), 4);
+        assert_eq!(title_motion.keyframes[0].tick, 0);
+        assert_eq!(title_motion.keyframes[0].opacity, 0.0);
+        assert_eq!(title_motion.keyframes[0].scale, 0.85);
+        assert_eq!(title_motion.keyframes[0].x, 0.05);
+        assert_eq!(title_motion.keyframes[0].y, -0.1);
+
+        let one_sec_tick = ((1.0 * s as f64).round() as u64 / frame) * frame;
+        assert_eq!(title_motion.keyframes[1].tick, one_sec_tick);
+        assert_eq!(title_motion.keyframes[1].opacity, 1.0);
+
+        let fade_out_start_tick = title_clip.duration_ticks() - one_sec_tick;
+        assert_eq!(title_motion.keyframes[2].tick, fade_out_start_tick);
+        assert_eq!(title_motion.keyframes[2].opacity, 1.0);
+
+        let last_domain_tick = title_clip.duration_ticks() - frame;
+        assert_eq!(title_motion.keyframes[3].tick, last_domain_tick);
+        assert_eq!(title_motion.keyframes[3].opacity, 0.0);
+
+        // 2. Quote card overlay clip
+        let quote_clip = overlay_clips.iter().find(|c| c.asset_id() == "quote-card").unwrap();
+        let quote_motion = match quote_clip {
+            Clip::Image(img) => &img.motion,
+            _ => panic!("expected image clip"),
+        };
+        assert_eq!(quote_motion.avoid_exposed_edges, false);
+        assert_eq!(quote_motion.keyframes.len(), 4);
+        assert_eq!(quote_motion.keyframes[0].opacity, 0.0);
+        assert_eq!(quote_motion.keyframes[1].opacity, 1.0);
+        assert_eq!(quote_motion.keyframes[2].opacity, 1.0);
+        assert_eq!(quote_motion.keyframes[3].opacity, 0.0);
+        assert_eq!(quote_motion.keyframes[0].scale, 0.9);
+        assert_eq!(quote_motion.keyframes[0].y, 0.2);
+    }
 }
+

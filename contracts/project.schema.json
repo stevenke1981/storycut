@@ -473,7 +473,7 @@
             "$ref": "#/$defs/keyframe"
           },
           "minItems": 1,
-          "maxItems": 2
+          "maxItems": 64
         }
       },
       "required": [

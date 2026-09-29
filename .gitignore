@@ -17,3 +17,5 @@ __pycache__/
 /.storycut/
 *.storycut-state.json
 *.storycut-state.json.lock
+# Local Pi runtime state
+.atl/

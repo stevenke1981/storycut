@@ -233,20 +233,20 @@ impl Motion {
 
     fn is_static(&self) -> bool {
         self.keyframes
-            .get(1)
-            .is_none_or(|last| same_motion_values(self.first(), *last))
+            .windows(2)
+            .all(|w| same_motion_values(w[0], w[1]))
     }
 
     fn scale_is_static(&self) -> bool {
         self.keyframes
-            .get(1)
-            .is_none_or(|last| (self.first().scale - last.scale).abs() <= f64::EPSILON)
+            .windows(2)
+            .all(|w| (w[0].scale - w[1].scale).abs() <= f64::EPSILON)
     }
 
     fn opacity_is_static(&self) -> bool {
         self.keyframes
-            .get(1)
-            .is_none_or(|last| (self.first().opacity - last.opacity).abs() <= f64::EPSILON)
+            .windows(2)
+            .all(|w| (w[0].opacity - w[1].opacity).abs() <= f64::EPSILON)
     }
 
     fn all_opacity_zero(&self) -> bool {
@@ -1256,9 +1256,9 @@ fn parse_motion(
         .get("keyframes")
         .and_then(Value::as_array)
         .ok_or_else(|| RenderError::InvalidProject("motion.keyframes must be an array".into()))?;
-    if keyframes.is_empty() || keyframes.len() > 2 {
+    if keyframes.is_empty() || keyframes.len() > 64 {
         return Err(RenderError::InvalidProject(
-            "motion requires one or two keyframes".into(),
+            "motion requires 1 to 64 keyframes".into(),
         ));
     }
     let read_key = |key: &Value| -> Result<MotionKeyframe, RenderError> {
@@ -1285,13 +1285,25 @@ fn parse_motion(
         .map(read_key)
         .collect::<Result<Vec<_>, _>>()?;
     let last_domain_tick = domain_duration - frame_ticks;
-    if parsed_keyframes[0].tick != 0
-        || (parsed_keyframes.len() == 1
-            && (domain_duration != frame_ticks || clip_duration != frame_ticks))
-        || (parsed_keyframes.len() == 2
-            && (parsed_keyframes[1].tick != last_domain_tick
-                || parsed_keyframes[1].tick <= parsed_keyframes[0].tick))
-    {
+    if parsed_keyframes[0].tick != 0 {
+        return Err(RenderError::InvalidProject(
+            "motion keyframes must start at tick 0".into(),
+        ));
+    }
+    for window in parsed_keyframes.windows(2) {
+        if window[1].tick <= window[0].tick {
+            return Err(RenderError::InvalidProject(
+                "motion keyframe ticks must be strictly increasing".into(),
+            ));
+        }
+    }
+    if parsed_keyframes.len() == 1 {
+        if domain_duration != frame_ticks || clip_duration != frame_ticks {
+            return Err(RenderError::InvalidProject(
+                "motion keyframes must cover the frame-aligned domain endpoints".into(),
+            ));
+        }
+    } else if parsed_keyframes.last().unwrap().tick != last_domain_tick {
         return Err(RenderError::InvalidProject(
             "motion keyframes must cover the frame-aligned domain endpoints".into(),
         ));
@@ -2707,26 +2719,52 @@ fn motion_expression(
     if motion.is_static() {
         return format!("{value:.12}");
     }
-    let Some(last) = motion.keyframes.get(1).copied() else {
-        return format!("{value:.12}");
-    };
-    let last_value = motion_component_value(last, component);
-    if (last_value - value).abs() <= f64::EPSILON {
-        return format!("{value:.12}");
+    if motion.keyframes.len() == 2 {
+        let last = motion.keyframes[1];
+        let last_value = motion_component_value(last, component);
+        if (last_value - value).abs() <= f64::EPSILON {
+            return format!("{value:.12}");
+        }
+        let domain_seconds = ticks_to_seconds(domain_tick_at_start);
+        let first_seconds = ticks_to_seconds(first.tick);
+        let interval_seconds = ticks_to_seconds(last.tick - first.tick);
+        let raw_progress = format!(
+            "(({domain_seconds}+({time_variable}-{timeline_start_seconds})-{first_seconds})/{interval_seconds})"
+        );
+        let progress = format!("min(max({raw_progress},0),1)");
+        let eased = if motion.interpolation == "smoothstep" {
+            format!("(({progress})*({progress})*(3-2*({progress})))")
+        } else {
+            progress
+        };
+        return format!("({value:.12}+({:.12})*({eased}))", last_value - value);
     }
+
+    // Multi-keyframe piecewise expression
     let domain_seconds = ticks_to_seconds(domain_tick_at_start);
-    let first_seconds = ticks_to_seconds(first.tick);
-    let interval_seconds = ticks_to_seconds(last.tick - first.tick);
-    let raw_progress = format!(
-        "(({domain_seconds}+({time_variable}-{timeline_start_seconds})-{first_seconds})/{interval_seconds})"
-    );
-    let progress = format!("min(max({raw_progress},0),1)");
-    let eased = if motion.interpolation == "smoothstep" {
-        format!("(({progress})*({progress})*(3-2*({progress})))")
-    } else {
-        progress
-    };
-    format!("({value:.12}+({:.12})*({eased}))", last_value - value)
+    let t_local = format!("({domain_seconds}+({time_variable}-{timeline_start_seconds}))");
+    let mut expr = format!("{:.12}", motion_component_value(*motion.keyframes.last().unwrap(), component));
+    for window in motion.keyframes.windows(2).rev() {
+        let (k_a, k_b) = (window[0], window[1]);
+        let v_a = motion_component_value(k_a, component);
+        let v_b = motion_component_value(k_b, component);
+        let t_a_sec = ticks_to_seconds(k_a.tick);
+        let t_b_sec = ticks_to_seconds(k_b.tick);
+        let interval_sec = ticks_to_seconds(k_b.tick - k_a.tick);
+        let seg_val = if (v_b - v_a).abs() <= f64::EPSILON {
+            format!("{v_a:.12}")
+        } else {
+            let p = format!("min(max(({t_local}-{t_a_sec})/{interval_sec},0),1)");
+            let eased = if motion.interpolation == "smoothstep" {
+                format!("(({p})*({p})*(3-2*({p})))")
+            } else {
+                p
+            };
+            format!("({v_a:.12}+({:.12})*({eased}))", v_b - v_a)
+        };
+        expr = format!("if(lt({t_local},{t_b_sec}),{seg_val},{expr})");
+    }
+    expr
 }
 
 fn fitted_dimensions(

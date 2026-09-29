@@ -742,7 +742,7 @@ fn validate_motion(
             .checked_add(clip_duration)
             .is_none_or(|end| end > motion.domain_duration_ticks)
         || motion.keyframes.is_empty()
-        || motion.keyframes.len() > 2
+        || motion.keyframes.len() > 64
         || !finite_between(motion.anchor.x, 0.0, 1.0)
         || !finite_between(motion.anchor.y, 0.0, 1.0)
     {
@@ -773,7 +773,7 @@ fn validate_motion(
     }
     if motion.keyframes[0].tick != 0
         || (motion.keyframes.len() == 1 && motion.domain_duration_ticks != frame)
-        || (motion.keyframes.len() == 2 && motion.keyframes[1].tick != last_tick)
+        || (motion.keyframes.len() > 1 && motion.keyframes.last().unwrap().tick != last_tick)
     {
         return Err(ProjectValidationError::new(format!(
             "clip {clip_id} motion keyframes must cover its frame domain"

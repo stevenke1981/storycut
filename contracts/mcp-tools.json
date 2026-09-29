@@ -11625,7 +11625,7 @@
                   "$ref": "#/$defs/keyframe"
                 },
                 "minItems": 1,
-                "maxItems": 2
+                "maxItems": 64
               }
             },
             "required": [
@@ -12640,6 +12640,42 @@
                 "type": "number",
                 "minimum": 1e-06,
                 "maximum": 86400
+              },
+              "title_overlay_asset_id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 80,
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+              },
+              "title_duration_seconds": {
+                "type": "number",
+                "minimum": 1e-06,
+                "maximum": 86400
+              },
+              "title_fade_in_seconds": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 86400
+              },
+              "title_fade_out_seconds": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 86400
+              },
+              "title_scale": {
+                "type": "number",
+                "minimum": 1e-06,
+                "maximum": 16.0
+              },
+              "title_x": {
+                "type": "number",
+                "minimum": -4.0,
+                "maximum": 4.0
+              },
+              "title_y": {
+                "type": "number",
+                "minimum": -4.0,
+                "maximum": 4.0
               }
             },
             "required": [
@@ -12929,6 +12965,31 @@
                       "type": "number",
                       "minimum": 1e-06,
                       "maximum": 86400
+                    },
+                    "fade_in_seconds": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 86400
+                    },
+                    "fade_out_seconds": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 86400
+                    },
+                    "scale": {
+                      "type": "number",
+                      "minimum": 1e-06,
+                      "maximum": 16.0
+                    },
+                    "x": {
+                      "type": "number",
+                      "minimum": -4.0,
+                      "maximum": 4.0
+                    },
+                    "y": {
+                      "type": "number",
+                      "minimum": -4.0,
+                      "maximum": 4.0
                     }
                   },
                   "required": [
