@@ -136,6 +136,49 @@ fn decode_audio(path: &Path) -> Vec<f32> {
         .collect()
 }
 
+fn write_limiter_fixture(path: &Path) {
+    let sample_rate = 48_000_u32;
+    let sample_count = 3 * sample_rate;
+    let data_bytes = sample_count * 2;
+    let mut wav = Vec::with_capacity(44 + data_bytes as usize);
+    wav.extend_from_slice(b"RIFF");
+    wav.extend_from_slice(&(36 + data_bytes).to_le_bytes());
+    wav.extend_from_slice(b"WAVEfmt ");
+    wav.extend_from_slice(&16_u32.to_le_bytes());
+    wav.extend_from_slice(&1_u16.to_le_bytes());
+    wav.extend_from_slice(&1_u16.to_le_bytes());
+    wav.extend_from_slice(&sample_rate.to_le_bytes());
+    wav.extend_from_slice(&(sample_rate * 2).to_le_bytes());
+    wav.extend_from_slice(&2_u16.to_le_bytes());
+    wav.extend_from_slice(&16_u16.to_le_bytes());
+    wav.extend_from_slice(b"data");
+    wav.extend_from_slice(&data_bytes.to_le_bytes());
+    for sample in 0..sample_count {
+        let carrier = 0.02
+            * (std::f64::consts::TAU * 440.0 * f64::from(sample) / f64::from(sample_rate)).sin();
+        let value = if sample == sample_rate || sample == sample_count - 200 {
+            0.98
+        } else {
+            carrier
+        };
+        let pcm = (value * f64::from(i16::MAX)).round() as i16;
+        wav.extend_from_slice(&pcm.to_le_bytes());
+    }
+    std::fs::write(path, wav).expect("write impulse and tail tone fixture");
+}
+
+fn peak_sample(samples: &[f32], center: usize, radius: usize) -> (usize, f32) {
+    let start = center.saturating_sub(radius);
+    let end = center
+        .saturating_add(radius)
+        .saturating_add(1)
+        .min(samples.len());
+    (start..end)
+        .map(|index| (index, samples[index].abs()))
+        .max_by(|left, right| left.1.total_cmp(&right.1))
+        .expect("peak window contains decoded audio samples")
+}
+
 /// Amplitude of one frequency in a mono window (Goertzel).
 fn tone_level(samples: &[f32], start_s: f64, end_s: f64, hz: f64) -> f64 {
     let a = (start_s * 48_000.0) as usize;
@@ -422,6 +465,70 @@ fn master_loudness_two_pass_reaches_the_target() {
         "normalized to -16 LUFS: {after}"
     );
     assert_eq!(report.frame_count, 48);
+}
+
+#[test]
+fn peak_limiter_latency_preserves_audio_events_and_tail_samples() {
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = tmp.path();
+    write_limiter_fixture(&dir.join("pulse.wav"));
+    still(dir, "black.png", "black");
+    let s = TIMEBASE;
+    let duration = 3 * s;
+    let project = base_project(
+        json!([
+            asset("bg", "image", "black.png"),
+            asset("tone", "audio", "pulse.wav")
+        ]),
+        json!([track("v", "video"), track("a", "audio")]),
+        json!([
+            {"id":"bg","track_id":"v","asset_id":"bg","kind":"image","start_tick":0,"duration_ticks":duration,"source_in_tick":0,"motion":motion(duration)},
+            {"id":"tone","track_id":"a","asset_id":"tone","kind":"audio","start_tick":0,"duration_ticks":duration,"source_in_tick":0,"stream_index":0,
+             "audio":{"domain_duration_ticks":duration,"sample_offset_tick":0,"gain_db":0,"pan":0,"muted":false,"fade_in_ticks":0,"fade_out_ticks":0,"fade_curve":"linear_amplitude"}}
+        ]),
+        json!([]),
+        json!([]),
+    );
+
+    let plain = render_to(&project, dir, "plain.mp4", duration, json!({}));
+    assert!(plain.master_loudness.is_none());
+    let limited = render_to(
+        &project,
+        dir,
+        "limited.mp4",
+        duration,
+        json!({"master_loudness":{"integrated_lufs":-16,"true_peak_db":-1.5}}),
+    );
+    let report = limited.master_loudness.expect("loudness report");
+    assert_eq!(report["peak_limited"], true);
+
+    let plain_audio = decode_audio(&dir.join("plain.mp4"));
+    let limited_audio = decode_audio(&dir.join("limited.mp4"));
+    assert_eq!(
+        limited_audio.len(),
+        plain_audio.len(),
+        "limiting must keep the full audio sample count"
+    );
+
+    let first_event = 48_000;
+    let (plain_first_index, _) = peak_sample(&plain_audio, first_event, 512);
+    let (limited_first_index, _) = peak_sample(&limited_audio, first_event, 512);
+    assert!(
+        plain_first_index.abs_diff(limited_first_index) <= 32,
+        "limiter shifted the first event: plain={plain_first_index}, limited={limited_first_index}"
+    );
+
+    let tail_event = 144_000 - 200;
+    let (plain_tail_index, plain_tail_peak) = peak_sample(&plain_audio, tail_event, 512);
+    let (limited_tail_index, limited_tail_peak) = peak_sample(&limited_audio, tail_event, 512);
+    assert!(
+        plain_tail_index.abs_diff(limited_tail_index) <= 32,
+        "limiter shifted the tail event: plain={plain_tail_index}, limited={limited_tail_index}"
+    );
+    assert!(
+        limited_tail_peak > plain_tail_peak * 0.5,
+        "limiter trimmed the tail event: plain peak={plain_tail_peak}, limited peak={limited_tail_peak}"
+    );
 }
 
 #[test]

@@ -939,7 +939,7 @@ impl LoudnessPlan {
         let mut chain = format!("volume={:.4}dB", self.gain_db());
         if self.limited() {
             chain.push_str(&format!(
-                ",alimiter=limit={:.6}:attack=5:release=50:level=disabled",
+                ",alimiter=limit={:.6}:attack=5:release=50:level=disabled:latency=1",
                 10_f64.powf(self.target.true_peak_db / 20.0)
             ));
         }
@@ -1918,7 +1918,7 @@ fn prepare_subtitles(
     if mode == "none" {
         return Ok(None);
     }
-    if let Some(document) = prepare_styled_subtitles(project, range_start, range_end)? {
+    if let Some(document) = prepare_styled_subtitles(project)? {
         return Ok(Some((document, "ass")));
     }
     let tracks: HashMap<_, _> = project.tracks.iter().map(|t| (t.id.as_str(), t)).collect();
@@ -2006,14 +2006,10 @@ fn prepare_subtitles(
 }
 
 /// ASS/SSA burn: the active document is exported through the subtitle core
-/// (applying offset and cue edits while preserving styles), then its Dialogue
-/// times are moved into the render range. Returns `None` when no styled
+/// (applying offset and cue edits while preserving styles). Event timing stays
+/// absolute so move/fade/karaoke clocks survive range previews. Returns `None` when no styled
 /// document is active so the SRT path can run.
-fn prepare_styled_subtitles(
-    project: &ProjectSnapshot,
-    range_start: u64,
-    range_end: u64,
-) -> Result<Option<String>, RenderError> {
+fn prepare_styled_subtitles(project: &ProjectSnapshot) -> Result<Option<String>, RenderError> {
     let active_tracks: HashSet<_> = project
         .tracks
         .iter()
@@ -2049,108 +2045,7 @@ fn prepare_styled_subtitles(
         storycut_subtitle::export_subtitle(&subtitle, subtitle.format).map_err(|error| {
             RenderError::UnsupportedFeature(format!("styled subtitle burn: {error}"))
         })?;
-    shift_ass_events(&export.content, range_start, range_end).map(Some)
-}
-
-/// Rewrites `Dialogue:` start/end fields (per the `[Events]` Format line) to be
-/// relative to `range_start`, dropping events outside the range.
-fn shift_ass_events(
-    document: &str,
-    range_start: u64,
-    range_end: u64,
-) -> Result<String, RenderError> {
-    let mut output = String::with_capacity(document.len());
-    let mut in_events = false;
-    let mut start_index = 1_usize;
-    let mut end_index = 2_usize;
-    let mut field_count = 10_usize;
-    for line in document.split_inclusive('\n') {
-        let body = line.trim_end_matches(['\r', '\n']);
-        let trimmed = body.trim_start();
-        if trimmed.starts_with('[') {
-            in_events = trimmed.eq_ignore_ascii_case("[events]");
-            output.push_str(line);
-            continue;
-        }
-        if in_events && trimmed.len() > 7 && trimmed[..7].eq_ignore_ascii_case("format:") {
-            let fields: Vec<String> = trimmed[7..]
-                .split(',')
-                .map(|field| field.trim().to_ascii_lowercase())
-                .collect();
-            field_count = fields.len();
-            start_index = fields.iter().position(|f| f == "start").ok_or_else(|| {
-                RenderError::UnsupportedFeature("ASS Format line has no Start field".into())
-            })?;
-            end_index = fields.iter().position(|f| f == "end").ok_or_else(|| {
-                RenderError::UnsupportedFeature("ASS Format line has no End field".into())
-            })?;
-            output.push_str(line);
-            continue;
-        }
-        let is_dialogue =
-            in_events && trimmed.len() > 9 && trimmed[..9].eq_ignore_ascii_case("dialogue:");
-        if !is_dialogue {
-            output.push_str(line);
-            continue;
-        }
-        let prefix_len = body.len() - trimmed.len() + 9;
-        let values: Vec<&str> = body[prefix_len..].splitn(field_count, ',').collect();
-        if values.len() != field_count {
-            return Err(RenderError::UnsupportedFeature(
-                "ASS Dialogue line does not match its Format line".into(),
-            ));
-        }
-        let start = parse_ass_time(values[start_index])?;
-        let end = parse_ass_time(values[end_index])?;
-        let start = start.max(range_start);
-        let end = end.min(range_end);
-        if start >= end {
-            continue;
-        }
-        let mut rewritten: Vec<String> = values.iter().map(|value| (*value).to_owned()).collect();
-        rewritten[start_index] = ticks_to_ass(start - range_start);
-        rewritten[end_index] = ticks_to_ass(end - range_start);
-        output.push_str(&body[..prefix_len]);
-        output.push_str(&rewritten.join(","));
-        output.push_str(&line[body.len()..]);
-    }
-    Ok(output)
-}
-
-fn parse_ass_time(value: &str) -> Result<u64, RenderError> {
-    let invalid = || RenderError::UnsupportedFeature(format!("invalid ASS time {value}"));
-    let mut parts = value.trim().split(':');
-    let hours: u64 = parts
-        .next()
-        .and_then(|v| v.parse().ok())
-        .ok_or_else(invalid)?;
-    let minutes: u64 = parts
-        .next()
-        .and_then(|v| v.parse().ok())
-        .ok_or_else(invalid)?;
-    let seconds = parts.next().ok_or_else(invalid)?;
-    let (whole, fraction) = seconds.split_once('.').unwrap_or((seconds, "0"));
-    let whole: u64 = whole.parse().map_err(|_| invalid())?;
-    let mut centis: u64 = fraction.parse().map_err(|_| invalid())?;
-    match fraction.len() {
-        1 => centis *= 10,
-        2 => {}
-        _ => return Err(invalid()),
-    }
-    let total_centis = ((hours * 60 + minutes) * 60 + whole) * 100 + centis;
-    Ok(total_centis * (TIMEBASE / 100))
-}
-
-fn ticks_to_ass(ticks: u64) -> String {
-    // Round to the nearest centisecond, the ASS time resolution.
-    let centis = (ticks + TIMEBASE / 200) / (TIMEBASE / 100);
-    format!(
-        "{}:{:02}:{:02}.{:02}",
-        centis / 360_000,
-        centis / 6_000 % 60,
-        centis / 100 % 60,
-        centis % 100
-    )
+    Ok(Some(export.content))
 }
 
 fn run_render(
@@ -2370,9 +2265,18 @@ fn run_render(
             .replace('\\', "\\\\")
             .replace(':', "\\:")
             .replace('\'', "\\'");
-        graph.push(format!(
-            "[{base_label}]subtitles=filename='{escaped}'[vout]"
-        ));
+        if subtitle_path.extension() == Some(OsStr::new("ass")) {
+            // Keep styled events on their original clock. Clipping Dialogue
+            // start/end would restart relative move, fade and karaoke effects.
+            graph.push(format!(
+                "[{base_label}]setpts=PTS+{}/TB,subtitles=filename='{escaped}',setpts=PTS-STARTPTS[vout]",
+                ticks_to_seconds(range_start)
+            ));
+        } else {
+            graph.push(format!(
+                "[{base_label}]subtitles=filename='{escaped}'[vout]"
+            ));
+        }
         "vout"
     } else {
         base_label.as_str()
