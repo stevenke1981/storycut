@@ -556,6 +556,8 @@ fn linked_video_audio_move_split_envelope_and_unlink_share_one_transaction_core(
                 stream_index: 0,
                 motion: motion_for(duration, frame),
                 audio_policy: VideoAudioPolicy::Muted,
+                hold_head_ticks: 0,
+                hold_tail_ticks: 0,
             }),
         },
         Operation::ClipAdd {
@@ -950,4 +952,236 @@ fn transitions_and_track_operations_validate_overlaps_and_ripple_as_one_batch() 
         )
         .unwrap();
     assert_eq!(store.snapshot().unwrap().tracks.len(), 1);
+}
+
+fn held_video_fixture(store: &ProjectStore, frame: u64) -> VideoClip {
+    let source = frame * 300;
+    store
+        .import_assets(
+            0,
+            "held-import",
+            false,
+            vec![
+                Asset {
+                    id: "native".into(),
+                    kind: AssetKind::Video,
+                    path: "fixtures/native.mp4".into(),
+                    probe_status: ProbeStatus::Probed,
+                    duration_ticks: Some(source),
+                    sha256: None,
+                    streams: vec![Stream {
+                        index: 0,
+                        kind: StreamKind::Video,
+                        time_base: Rational { num: 1, den: 30 },
+                        sample_rate: None,
+                    }],
+                },
+                Asset {
+                    id: "voice".into(),
+                    kind: AssetKind::Audio,
+                    path: "fixtures/voice.wav".into(),
+                    probe_status: ProbeStatus::Probed,
+                    duration_ticks: Some(TIMEBASE * 20),
+                    sha256: None,
+                    streams: vec![Stream {
+                        index: 0,
+                        kind: StreamKind::Audio,
+                        time_base: Rational {
+                            num: 1,
+                            den: 48_000,
+                        },
+                        sample_rate: Some(48_000),
+                    }],
+                },
+            ],
+        )
+        .unwrap();
+    let duration = frame * 12 + source + frame * 12;
+    VideoClip {
+        id: "held".into(),
+        track_id: "v1".into(),
+        asset_id: "native".into(),
+        start_tick: 0,
+        duration_ticks: duration,
+        source_in_tick: 0,
+        stream_index: 0,
+        motion: motion_for(duration, frame),
+        audio_policy: VideoAudioPolicy::Muted,
+        hold_head_ticks: frame * 12,
+        hold_tail_ticks: frame * 12,
+    }
+}
+
+#[test]
+fn video_holds_extend_the_timeline_but_not_the_source_and_refuse_trim_split() {
+    let temp = TempDir::new().unwrap();
+    let (store, _) = new_store(&temp);
+    let frame = frame_ticks();
+    let held = held_video_fixture(&store, frame);
+    let revision = store.snapshot().unwrap().revision;
+    // Timeline 324 frames from a 300-frame source is valid only because of the holds.
+    let result = store
+        .apply(
+            revision,
+            "held-add",
+            false,
+            vec![
+                Operation::TrackAdd {
+                    track: Track::new("v1", "V1", TrackKind::Video),
+                },
+                Operation::ClipAdd {
+                    clip: storycut_core::Clip::Video(held.clone()),
+                },
+            ],
+        )
+        .unwrap();
+    assert!(result.applied);
+    let revision = store.snapshot().unwrap().revision;
+
+    let mut too_long = held.clone();
+    too_long.id = "too-long".into();
+    too_long.start_tick = frame * 400;
+    too_long.hold_head_ticks = 0;
+    too_long.motion = motion_for(too_long.duration_ticks, frame);
+    let error = store
+        .apply(
+            revision,
+            "held-overrun",
+            true,
+            vec![Operation::ClipAdd {
+                clip: storycut_core::Clip::Video(too_long),
+            }],
+        )
+        .unwrap_err();
+    assert!(
+        error.to_string().contains("exceeds source duration"),
+        "{error}"
+    );
+
+    let split = store
+        .apply(
+            revision,
+            "held-split",
+            true,
+            vec![Operation::ClipSplit {
+                clip_id: "held".into(),
+                at_tick: frame * 100,
+                respect_links: true,
+            }],
+        )
+        .unwrap_err();
+    assert_eq!(split.code(), "UNSUPPORTED_FEATURE");
+    let trim = store
+        .apply(
+            revision,
+            "held-trim",
+            true,
+            vec![Operation::ClipTrim {
+                clip_id: "held".into(),
+                start_tick: 0,
+                source_in_tick: 0,
+                duration_ticks: frame * 200,
+                keyframe_policy: storycut_core::KeyframePolicy::RetimeFull,
+                respect_links: true,
+            }],
+        )
+        .unwrap_err();
+    assert_eq!(trim.code(), "UNSUPPORTED_FEATURE");
+}
+
+#[test]
+fn track_ducking_is_validated_set_and_cleared_through_track_update() {
+    let temp = TempDir::new().unwrap();
+    let (store, _) = new_store(&temp);
+    let revision = store.snapshot().unwrap().revision;
+    store
+        .apply(
+            revision,
+            "tracks",
+            false,
+            vec![
+                Operation::TrackAdd {
+                    track: Track::new("voice", "旁白", TrackKind::Audio),
+                },
+                Operation::TrackAdd {
+                    track: Track::new("music", "配樂", TrackKind::Audio),
+                },
+                Operation::TrackAdd {
+                    track: Track::new("pictures", "畫面", TrackKind::Video),
+                },
+            ],
+        )
+        .unwrap();
+    let revision = store.snapshot().unwrap().revision;
+    let ducking = |source: &str| storycut_core::Ducking {
+        source_track_id: source.into(),
+        threshold: 0.015,
+        ratio: 6.0,
+        attack_ms: 30.0,
+        release_ms: 500.0,
+    };
+    let update = |track: &str, value: Option<storycut_core::Ducking>| Operation::TrackUpdate {
+        track_id: track.into(),
+        changes: TrackChanges {
+            ducking: Some(value),
+            ..TrackChanges::default()
+        },
+    };
+    for (track, source) in [
+        ("music", "music"),
+        ("music", "pictures"),
+        ("pictures", "voice"),
+        ("music", "missing"),
+    ] {
+        let error = store
+            .apply(
+                revision,
+                "bad-duck",
+                true,
+                vec![update(track, Some(ducking(source)))],
+            )
+            .unwrap_err();
+        assert_eq!(
+            error.code(),
+            "INVALID_ARGUMENT",
+            "{track} by {source}: {error}"
+        );
+    }
+    store
+        .apply(
+            revision,
+            "duck",
+            false,
+            vec![update("music", Some(ducking("voice")))],
+        )
+        .unwrap();
+    let project = store.snapshot().unwrap();
+    let music = project.tracks.iter().find(|t| t.id == "music").unwrap();
+    assert_eq!(music.ducking.as_ref().unwrap().source_track_id, "voice");
+    // A ducked track cannot itself be a sidechain source (no chains).
+    let error = store
+        .apply(
+            project.revision,
+            "chain",
+            true,
+            vec![update("voice", Some(ducking("music")))],
+        )
+        .unwrap_err();
+    assert_eq!(error.code(), "INVALID_ARGUMENT");
+    // JSON null clears it.
+    let parsed: Operation = serde_json::from_value(json!({
+        "op":"track.update","track_id":"music","changes":{"ducking":null}
+    }))
+    .unwrap();
+    store
+        .apply(project.revision, "unduck", false, vec![parsed])
+        .unwrap();
+    assert!(
+        store
+            .snapshot()
+            .unwrap()
+            .tracks
+            .iter()
+            .all(|t| t.ducking.is_none())
+    );
 }

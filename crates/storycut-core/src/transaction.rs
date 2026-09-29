@@ -166,6 +166,13 @@ pub struct TrackChanges {
         skip_serializing_if = "Option::is_none"
     )]
     pub gain_db: Option<f64>,
+    /// `Some(Some(d))` sets sidechain ducking, `Some(None)` (JSON null) clears it.
+    #[serde(
+        default,
+        deserialize_with = "deserialize_present_value",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub ducking: Option<Option<crate::model::Ducking>>,
 }
 
 fn deserialize_present_value<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
@@ -301,6 +308,9 @@ fn apply_one(
             if let Some(value) = changes.gain_db {
                 track.gain_db = value;
             }
+            if let Some(value) = &changes.ducking {
+                track.ducking.clone_from(value);
+            }
         }
         Operation::TrackReorder { track_ids } => {
             if track_ids.len() != project.tracks.len() {
@@ -411,6 +421,7 @@ fn apply_one(
             let index = find_clip_index(project, clip_id)?;
             let old = project.clips[index].clone();
             check_track_unlocked(project, locked, old.track_id())?;
+            reject_video_holds(&old, "clip.trim")?;
             let head_delta = match &old {
                 Clip::Image(_) => i128::from(*start_tick) - i128::from(old.start_tick()),
                 _ => i128::from(*source_in_tick) - i128::from(old.source_in_tick()),
@@ -863,6 +874,23 @@ fn apply_audio_domain_trim(
     Ok(())
 }
 
+/// Frozen video holds belong to a specific cut; trimming or splitting cannot
+/// infer which side should keep them, so the edit is refused explicitly.
+fn reject_video_holds(clip: &Clip, operation: &str) -> Result<(), CoreError> {
+    if let Clip::Video(video) = clip
+        && video.has_holds()
+    {
+        return Err(CoreError::new(
+            CoreErrorCode::UnsupportedFeature,
+            format!(
+                "{operation} on video clip {} with frozen holds is unsupported; remove and re-add the clip",
+                video.id
+            ),
+        ));
+    }
+    Ok(())
+}
+
 fn split_clip(
     project: &mut Project,
     clip_id: &str,
@@ -872,6 +900,7 @@ fn split_clip(
     let index = find_clip_index(project, clip_id)?;
     let original = project.clips[index].clone();
     check_track_unlocked(project, locked, original.track_id())?;
+    reject_video_holds(&original, "clip.split")?;
     let start = original.start_tick();
     let end = original
         .end_tick()

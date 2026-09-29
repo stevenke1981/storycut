@@ -1339,6 +1339,52 @@
                 "type": "number",
                 "minimum": -96,
                 "maximum": 24
+              },
+              "ducking": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "threshold": {
+                        "type": "number",
+                        "minimum": 0.000976563,
+                        "maximum": 1
+                      },
+                      "ratio": {
+                        "type": "number",
+                        "minimum": 1,
+                        "maximum": 20
+                      },
+                      "attack_ms": {
+                        "type": "number",
+                        "minimum": 0.01,
+                        "maximum": 2000
+                      },
+                      "release_ms": {
+                        "type": "number",
+                        "minimum": 0.01,
+                        "maximum": 9000
+                      },
+                      "source_track_id": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 80,
+                        "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+                      }
+                    },
+                    "additionalProperties": false,
+                    "required": [
+                      "source_track_id",
+                      "threshold",
+                      "ratio",
+                      "attack_ms",
+                      "release_ms"
+                    ]
+                  }
+                ]
               }
             },
             "required": [
@@ -2465,6 +2511,52 @@
                 "type": "number",
                 "minimum": -96,
                 "maximum": 24
+              },
+              "ducking": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "threshold": {
+                        "type": "number",
+                        "minimum": 0.000976563,
+                        "maximum": 1
+                      },
+                      "ratio": {
+                        "type": "number",
+                        "minimum": 1,
+                        "maximum": 20
+                      },
+                      "attack_ms": {
+                        "type": "number",
+                        "minimum": 0.01,
+                        "maximum": 2000
+                      },
+                      "release_ms": {
+                        "type": "number",
+                        "minimum": 0.01,
+                        "maximum": 9000
+                      },
+                      "source_track_id": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 80,
+                        "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+                      }
+                    },
+                    "additionalProperties": false,
+                    "required": [
+                      "source_track_id",
+                      "threshold",
+                      "ratio",
+                      "attack_ms",
+                      "release_ms"
+                    ]
+                  }
+                ]
               }
             },
             "required": [
@@ -3591,6 +3683,52 @@
                 "type": "number",
                 "minimum": -96,
                 "maximum": 24
+              },
+              "ducking": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "threshold": {
+                        "type": "number",
+                        "minimum": 0.000976563,
+                        "maximum": 1
+                      },
+                      "ratio": {
+                        "type": "number",
+                        "minimum": 1,
+                        "maximum": 20
+                      },
+                      "attack_ms": {
+                        "type": "number",
+                        "minimum": 0.01,
+                        "maximum": 2000
+                      },
+                      "release_ms": {
+                        "type": "number",
+                        "minimum": 0.01,
+                        "maximum": 9000
+                      },
+                      "source_track_id": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 80,
+                        "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+                      }
+                    },
+                    "additionalProperties": false,
+                    "required": [
+                      "source_track_id",
+                      "threshold",
+                      "ratio",
+                      "attack_ms",
+                      "release_ms"
+                    ]
+                  }
+                ]
               }
             },
             "required": [
@@ -5846,6 +5984,52 @@
                 "type": "number",
                 "minimum": -96,
                 "maximum": 24
+              },
+              "ducking": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "threshold": {
+                        "type": "number",
+                        "minimum": 0.000976563,
+                        "maximum": 1
+                      },
+                      "ratio": {
+                        "type": "number",
+                        "minimum": 1,
+                        "maximum": 20
+                      },
+                      "attack_ms": {
+                        "type": "number",
+                        "minimum": 0.01,
+                        "maximum": 2000
+                      },
+                      "release_ms": {
+                        "type": "number",
+                        "minimum": 0.01,
+                        "maximum": 9000
+                      },
+                      "source_track_id": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 80,
+                        "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+                      }
+                    },
+                    "additionalProperties": false,
+                    "required": [
+                      "source_track_id",
+                      "threshold",
+                      "ratio",
+                      "attack_ms",
+                      "release_ms"
+                    ]
+                  }
+                ]
               }
             },
             "required": [
@@ -7020,6 +7204,52 @@
                 "type": "number",
                 "minimum": -96,
                 "maximum": 24
+              },
+              "ducking": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "threshold": {
+                        "type": "number",
+                        "minimum": 0.000976563,
+                        "maximum": 1
+                      },
+                      "ratio": {
+                        "type": "number",
+                        "minimum": 1,
+                        "maximum": 20
+                      },
+                      "attack_ms": {
+                        "type": "number",
+                        "minimum": 0.01,
+                        "maximum": 2000
+                      },
+                      "release_ms": {
+                        "type": "number",
+                        "minimum": 0.01,
+                        "maximum": 9000
+                      },
+                      "source_track_id": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 80,
+                        "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+                      }
+                    },
+                    "additionalProperties": false,
+                    "required": [
+                      "source_track_id",
+                      "threshold",
+                      "ratio",
+                      "attack_ms",
+                      "release_ms"
+                    ]
+                  }
+                ]
               }
             },
             "required": [
@@ -8367,6 +8597,52 @@
                 "type": "number",
                 "minimum": -96,
                 "maximum": 24
+              },
+              "ducking": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "threshold": {
+                        "type": "number",
+                        "minimum": 0.000976563,
+                        "maximum": 1
+                      },
+                      "ratio": {
+                        "type": "number",
+                        "minimum": 1,
+                        "maximum": 20
+                      },
+                      "attack_ms": {
+                        "type": "number",
+                        "minimum": 0.01,
+                        "maximum": 2000
+                      },
+                      "release_ms": {
+                        "type": "number",
+                        "minimum": 0.01,
+                        "maximum": 9000
+                      },
+                      "source_track_id": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 80,
+                        "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+                      }
+                    },
+                    "additionalProperties": false,
+                    "required": [
+                      "source_track_id",
+                      "threshold",
+                      "ratio",
+                      "attack_ms",
+                      "release_ms"
+                    ]
+                  }
+                ]
               }
             },
             "required": [
@@ -8732,6 +9008,52 @@
                 "type": "number",
                 "minimum": -96,
                 "maximum": 24
+              },
+              "ducking": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "threshold": {
+                        "type": "number",
+                        "minimum": 0.000976563,
+                        "maximum": 1
+                      },
+                      "ratio": {
+                        "type": "number",
+                        "minimum": 1,
+                        "maximum": 20
+                      },
+                      "attack_ms": {
+                        "type": "number",
+                        "minimum": 0.01,
+                        "maximum": 2000
+                      },
+                      "release_ms": {
+                        "type": "number",
+                        "minimum": 0.01,
+                        "maximum": 9000
+                      },
+                      "source_track_id": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 80,
+                        "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+                      }
+                    },
+                    "additionalProperties": false,
+                    "required": [
+                      "source_track_id",
+                      "threshold",
+                      "ratio",
+                      "attack_ms",
+                      "release_ms"
+                    ]
+                  }
+                ]
               }
             },
             "required": [],
@@ -12225,6 +12547,1114 @@
       }
     },
     {
+      "name": "storycut_narration_assemble",
+      "description": "Night Lantern story assembly in one revisioned transaction: narration segments laid end to end, each shot covering a contiguous segment range so picture follows the voice, optional native-video intro/outro, centered dissolves that keep the total length (native videos get frozen holds so their core stays opaque), music cues ducked by narration, and alpha overlay cards. Returns per-segment timeline offsets for subtitle timing.",
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "project_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+          },
+          "expected_revision": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "idempotency_key": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+          },
+          "dry_run": {
+            "type": "boolean"
+          },
+          "narration": {
+            "type": "object",
+            "properties": {
+              "track_name": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 120
+              },
+              "gap_seconds": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 86400
+              },
+              "gain_db": {
+                "type": "number",
+                "minimum": -96,
+                "maximum": 24
+              },
+              "segments": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "asset_id": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 80,
+                      "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+                    },
+                    "gain_db": {
+                      "type": "number",
+                      "minimum": -96,
+                      "maximum": 24
+                    }
+                  },
+                  "required": [
+                    "asset_id"
+                  ],
+                  "additionalProperties": false
+                },
+                "minItems": 1,
+                "maxItems": 400
+              }
+            },
+            "required": [
+              "segments"
+            ],
+            "additionalProperties": false
+          },
+          "intro": {
+            "type": "object",
+            "properties": {
+              "asset_id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 80,
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+              },
+              "source_in_seconds": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 86400
+              },
+              "duration_seconds": {
+                "type": "number",
+                "minimum": 1e-06,
+                "maximum": 86400
+              }
+            },
+            "required": [
+              "asset_id"
+            ],
+            "additionalProperties": false
+          },
+          "outro": {
+            "type": "object",
+            "properties": {
+              "asset_id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 80,
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+              },
+              "source_in_seconds": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 86400
+              },
+              "duration_seconds": {
+                "type": "number",
+                "minimum": 1e-06,
+                "maximum": 86400
+              }
+            },
+            "required": [
+              "asset_id"
+            ],
+            "additionalProperties": false
+          },
+          "shots": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "asset_id": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 80,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+                },
+                "segments": {
+                  "type": "array",
+                  "items": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 399
+                  },
+                  "minItems": 2,
+                  "maxItems": 2
+                },
+                "align": {
+                  "type": "string",
+                  "enum": [
+                    "start",
+                    "center",
+                    "end"
+                  ]
+                },
+                "source_in_seconds": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 86400
+                },
+                "duration_seconds": {
+                  "type": "number",
+                  "minimum": 1e-06,
+                  "maximum": 86400
+                }
+              },
+              "required": [
+                "asset_id",
+                "segments"
+              ],
+              "additionalProperties": false
+            },
+            "minItems": 1,
+            "maxItems": 300
+          },
+          "transition": {
+            "type": "object",
+            "properties": {
+              "mode": {
+                "type": "string",
+                "enum": [
+                  "cut",
+                  "centered_dissolve"
+                ]
+              },
+              "duration_seconds": {
+                "type": "number",
+                "minimum": 1e-06,
+                "maximum": 86400
+              }
+            },
+            "additionalProperties": false
+          },
+          "music": {
+            "type": "object",
+            "properties": {
+              "track_name": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 120
+              },
+              "ducking": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "threshold": {
+                        "type": "number",
+                        "minimum": 0.000976563,
+                        "maximum": 1
+                      },
+                      "ratio": {
+                        "type": "number",
+                        "minimum": 1,
+                        "maximum": 20
+                      },
+                      "attack_ms": {
+                        "type": "number",
+                        "minimum": 0.01,
+                        "maximum": 2000
+                      },
+                      "release_ms": {
+                        "type": "number",
+                        "minimum": 0.01,
+                        "maximum": 9000
+                      }
+                    },
+                    "additionalProperties": false
+                  }
+                ]
+              },
+              "cues": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "asset_id": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 80,
+                      "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+                    },
+                    "start_seconds": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 86400
+                    },
+                    "end_seconds": {
+                      "type": "number",
+                      "minimum": 1e-06,
+                      "maximum": 86400
+                    },
+                    "source_in_seconds": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 86400
+                    },
+                    "gain_db": {
+                      "type": "number",
+                      "minimum": -96,
+                      "maximum": 24
+                    },
+                    "fade_in_seconds": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 86400
+                    },
+                    "fade_out_seconds": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 86400
+                    }
+                  },
+                  "required": [
+                    "asset_id",
+                    "start_seconds"
+                  ],
+                  "additionalProperties": false
+                },
+                "minItems": 1,
+                "maxItems": 64
+              }
+            },
+            "required": [
+              "cues"
+            ],
+            "additionalProperties": false
+          },
+          "overlays": {
+            "type": "object",
+            "properties": {
+              "track_name": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 120
+              },
+              "items": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "asset_id": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 80,
+                      "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+                    },
+                    "segment": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 399
+                    },
+                    "offset_seconds": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 86400
+                    },
+                    "at_seconds": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 86400
+                    },
+                    "duration_seconds": {
+                      "type": "number",
+                      "minimum": 1e-06,
+                      "maximum": 86400
+                    }
+                  },
+                  "required": [
+                    "asset_id"
+                  ],
+                  "additionalProperties": false
+                },
+                "minItems": 1,
+                "maxItems": 100
+              }
+            },
+            "required": [
+              "items"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "project_id",
+          "expected_revision",
+          "idempotency_key",
+          "dry_run",
+          "narration",
+          "shots"
+        ],
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "api_version": {
+            "const": "0.2.0"
+          },
+          "ok": {
+            "type": "boolean"
+          },
+          "request_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+          },
+          "project_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 80,
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "revision": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "data": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "committed": {
+                    "type": "boolean"
+                  },
+                  "base_revision": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "changed_ids": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 80,
+                      "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+                    },
+                    "maxItems": 100000
+                  },
+                  "duration_ticks": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 60963840000000
+                  },
+                  "created_track_ids": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 80,
+                      "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+                    },
+                    "maxItems": 4
+                  },
+                  "visual_track_id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 80,
+                    "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+                  },
+                  "narration_track_id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 80,
+                    "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+                  },
+                  "music_track_id": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 80,
+                        "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "overlay_track_id": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 80,
+                        "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "frame_ticks": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 60963840000000
+                  },
+                  "dissolve_window_ticks": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 60963840000000
+                  },
+                  "lead_in_ticks": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 60963840000000
+                  },
+                  "narration_end_tick": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 60963840000000
+                  },
+                  "total_duration_ticks": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 60963840000000
+                  },
+                  "segment_offsets": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "index": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 399
+                        },
+                        "asset_id": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 80,
+                          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+                        },
+                        "clip_id": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 80,
+                          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+                        },
+                        "start_tick": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 60963840000000
+                        },
+                        "duration_ticks": {
+                          "type": "integer",
+                          "minimum": 1,
+                          "maximum": 60963840000000
+                        },
+                        "start_seconds": {
+                          "type": "number",
+                          "minimum": 0,
+                          "maximum": 86400
+                        }
+                      },
+                      "required": [
+                        "index",
+                        "asset_id",
+                        "clip_id",
+                        "start_tick",
+                        "duration_ticks",
+                        "start_seconds"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "minItems": 1,
+                    "maxItems": 400
+                  },
+                  "cuts": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "role": {
+                          "type": "string",
+                          "enum": [
+                            "intro",
+                            "shot",
+                            "outro"
+                          ]
+                        },
+                        "clip_id": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 80,
+                          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+                        },
+                        "asset_id": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 80,
+                          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+                        },
+                        "cut_in_tick": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 60963840000000
+                        },
+                        "cut_out_tick": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 60963840000000
+                        },
+                        "clip_start_tick": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 60963840000000
+                        },
+                        "clip_duration_ticks": {
+                          "type": "integer",
+                          "minimum": 1,
+                          "maximum": 60963840000000
+                        }
+                      },
+                      "required": [
+                        "role",
+                        "clip_id",
+                        "asset_id",
+                        "cut_in_tick",
+                        "cut_out_tick",
+                        "clip_start_tick",
+                        "clip_duration_ticks"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "minItems": 1,
+                    "maxItems": 302
+                  },
+                  "native_cores": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "clip_id": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 80,
+                          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+                        },
+                        "asset_id": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 80,
+                          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+                        },
+                        "core_start_tick": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 60963840000000
+                        },
+                        "core_end_tick": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 60963840000000
+                        }
+                      },
+                      "required": [
+                        "clip_id",
+                        "asset_id",
+                        "core_start_tick",
+                        "core_end_tick"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "maxItems": 302
+                  }
+                },
+                "required": [
+                  "committed",
+                  "base_revision",
+                  "changed_ids",
+                  "duration_ticks",
+                  "created_track_ids",
+                  "visual_track_id",
+                  "narration_track_id",
+                  "music_track_id",
+                  "overlay_track_id",
+                  "frame_ticks",
+                  "dissolve_window_ticks",
+                  "lead_in_ticks",
+                  "narration_end_tick",
+                  "total_duration_ticks",
+                  "segment_offsets",
+                  "cuts",
+                  "native_cores"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "code": {
+                    "type": "string",
+                    "enum": [
+                      "INVALID_ARGUMENT",
+                      "NOT_FOUND",
+                      "REVISION_CONFLICT",
+                      "LOCKED_TRACK",
+                      "IDEMPOTENCY_CONFLICT",
+                      "DEPENDENCY_CONFLICT",
+                      "PATH_DENIED",
+                      "OVERWRITE_DENIED",
+                      "MEDIA_OFFLINE",
+                      "MEDIA_CHANGED",
+                      "UNSUPPORTED_FEATURE",
+                      "UNSUPPORTED_PROTOCOL",
+                      "RENDER_FAILED",
+                      "DISK_FULL",
+                      "CANCELLED",
+                      "JOB_INTERRUPTED",
+                      "INTERNAL_ERROR"
+                    ]
+                  },
+                  "message": {
+                    "type": "string",
+                    "maxLength": 65536
+                  },
+                  "retryable": {
+                    "type": "boolean"
+                  },
+                  "details": {
+                    "type": "object"
+                  }
+                },
+                "required": [
+                  "code",
+                  "message",
+                  "retryable",
+                  "details"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "warnings": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 80,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+                },
+                "message": {
+                  "type": "string",
+                  "maxLength": 65536
+                }
+              },
+              "required": [
+                "code",
+                "message"
+              ],
+              "additionalProperties": false
+            },
+            "maxItems": 100000
+          }
+        },
+        "required": [
+          "api_version",
+          "ok",
+          "request_id",
+          "project_id",
+          "revision",
+          "data",
+          "error",
+          "warnings"
+        ],
+        "additionalProperties": false,
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "ok": {
+                  "const": true
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "data": {
+                  "type": "object",
+                  "properties": {
+                    "committed": {
+                      "type": "boolean"
+                    },
+                    "base_revision": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "changed_ids": {
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 80,
+                        "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+                      },
+                      "maxItems": 100000
+                    },
+                    "duration_ticks": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 60963840000000
+                    },
+                    "created_track_ids": {
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 80,
+                        "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+                      },
+                      "maxItems": 4
+                    },
+                    "visual_track_id": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 80,
+                      "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+                    },
+                    "narration_track_id": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 80,
+                      "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+                    },
+                    "music_track_id": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 80,
+                          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "overlay_track_id": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 80,
+                          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "frame_ticks": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 60963840000000
+                    },
+                    "dissolve_window_ticks": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 60963840000000
+                    },
+                    "lead_in_ticks": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 60963840000000
+                    },
+                    "narration_end_tick": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 60963840000000
+                    },
+                    "total_duration_ticks": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 60963840000000
+                    },
+                    "segment_offsets": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "index": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 399
+                          },
+                          "asset_id": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 80,
+                            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+                          },
+                          "clip_id": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 80,
+                            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+                          },
+                          "start_tick": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 60963840000000
+                          },
+                          "duration_ticks": {
+                            "type": "integer",
+                            "minimum": 1,
+                            "maximum": 60963840000000
+                          },
+                          "start_seconds": {
+                            "type": "number",
+                            "minimum": 0,
+                            "maximum": 86400
+                          }
+                        },
+                        "required": [
+                          "index",
+                          "asset_id",
+                          "clip_id",
+                          "start_tick",
+                          "duration_ticks",
+                          "start_seconds"
+                        ],
+                        "additionalProperties": false
+                      },
+                      "minItems": 1,
+                      "maxItems": 400
+                    },
+                    "cuts": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "role": {
+                            "type": "string",
+                            "enum": [
+                              "intro",
+                              "shot",
+                              "outro"
+                            ]
+                          },
+                          "clip_id": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 80,
+                            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+                          },
+                          "asset_id": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 80,
+                            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+                          },
+                          "cut_in_tick": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 60963840000000
+                          },
+                          "cut_out_tick": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 60963840000000
+                          },
+                          "clip_start_tick": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 60963840000000
+                          },
+                          "clip_duration_ticks": {
+                            "type": "integer",
+                            "minimum": 1,
+                            "maximum": 60963840000000
+                          }
+                        },
+                        "required": [
+                          "role",
+                          "clip_id",
+                          "asset_id",
+                          "cut_in_tick",
+                          "cut_out_tick",
+                          "clip_start_tick",
+                          "clip_duration_ticks"
+                        ],
+                        "additionalProperties": false
+                      },
+                      "minItems": 1,
+                      "maxItems": 302
+                    },
+                    "native_cores": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "clip_id": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 80,
+                            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+                          },
+                          "asset_id": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 80,
+                            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+                          },
+                          "core_start_tick": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 60963840000000
+                          },
+                          "core_end_tick": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 60963840000000
+                          }
+                        },
+                        "required": [
+                          "clip_id",
+                          "asset_id",
+                          "core_start_tick",
+                          "core_end_tick"
+                        ],
+                        "additionalProperties": false
+                      },
+                      "maxItems": 302
+                    }
+                  },
+                  "required": [
+                    "committed",
+                    "base_revision",
+                    "changed_ids",
+                    "duration_ticks",
+                    "created_track_ids",
+                    "visual_track_id",
+                    "narration_track_id",
+                    "music_track_id",
+                    "overlay_track_id",
+                    "frame_ticks",
+                    "dissolve_window_ticks",
+                    "lead_in_ticks",
+                    "narration_end_tick",
+                    "total_duration_ticks",
+                    "segment_offsets",
+                    "cuts",
+                    "native_cores"
+                  ],
+                  "additionalProperties": false
+                },
+                "error": {
+                  "type": "null"
+                }
+              }
+            },
+            "else": {
+              "properties": {
+                "data": {
+                  "type": "null"
+                },
+                "error": {
+                  "type": "object",
+                  "properties": {
+                    "code": {
+                      "type": "string",
+                      "enum": [
+                        "INVALID_ARGUMENT",
+                        "NOT_FOUND",
+                        "REVISION_CONFLICT",
+                        "LOCKED_TRACK",
+                        "IDEMPOTENCY_CONFLICT",
+                        "DEPENDENCY_CONFLICT",
+                        "PATH_DENIED",
+                        "OVERWRITE_DENIED",
+                        "MEDIA_OFFLINE",
+                        "MEDIA_CHANGED",
+                        "UNSUPPORTED_FEATURE",
+                        "UNSUPPORTED_PROTOCOL",
+                        "RENDER_FAILED",
+                        "DISK_FULL",
+                        "CANCELLED",
+                        "JOB_INTERRUPTED",
+                        "INTERNAL_ERROR"
+                      ]
+                    },
+                    "message": {
+                      "type": "string",
+                      "maxLength": 65536
+                    },
+                    "retryable": {
+                      "type": "boolean"
+                    },
+                    "details": {
+                      "type": "object"
+                    }
+                  },
+                  "required": [
+                    "code",
+                    "message",
+                    "retryable",
+                    "details"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        ]
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
       "name": "storycut_audio_set",
       "description": "timeline_apply 單一 audio.set 操作的型別化捷徑；共用授權、鎖軌、版本與復原。",
       "inputSchema": {
@@ -15565,6 +16995,31 @@
             "type": "integer",
             "minimum": 1,
             "maximum": 60963840000000
+          },
+          "master_loudness": {
+            "type": "object",
+            "description": "Measures the mix with EBU R128 ebur128, applies linear gain toward integrated_lufs, and adds a sample-peak limiter only when needed to meet true_peak_db. lra is validated and reported but does not change processing. Omit to keep the plain linear mix.",
+            "properties": {
+              "integrated_lufs": {
+                "type": "number",
+                "minimum": -70,
+                "maximum": -5
+              },
+              "true_peak_db": {
+                "type": "number",
+                "minimum": -9,
+                "maximum": 0
+              },
+              "lra": {
+                "type": "number",
+                "minimum": 1,
+                "maximum": 50
+              }
+            },
+            "required": [
+              "integrated_lufs"
+            ],
+            "additionalProperties": false
           }
         },
         "required": [
@@ -15626,6 +17081,76 @@
                 "properties": {
                   "job": {
                     "$ref": "#/$defs/job"
+                  },
+                  "master_loudness": {
+                    "type": "object",
+                    "properties": {
+                      "method": {
+                        "type": "string"
+                      },
+                      "applied_gain_db": {
+                        "type": "number"
+                      },
+                      "peak_limited": {
+                        "type": "boolean"
+                      },
+                      "target": {
+                        "type": "object",
+                        "properties": {
+                          "integrated_lufs": {
+                            "type": "number"
+                          },
+                          "true_peak_db": {
+                            "type": "number"
+                          },
+                          "lra": {
+                            "type": "number"
+                          }
+                        },
+                        "required": [
+                          "integrated_lufs",
+                          "true_peak_db",
+                          "lra"
+                        ],
+                        "additionalProperties": false
+                      },
+                      "measured_before": {
+                        "type": "object",
+                        "properties": {
+                          "integrated_lufs": {
+                            "type": "number"
+                          },
+                          "true_peak_db": {
+                            "type": "number"
+                          },
+                          "lra": {
+                            "type": "number"
+                          },
+                          "threshold": {
+                            "type": "number"
+                          }
+                        },
+                        "required": [
+                          "integrated_lufs",
+                          "true_peak_db",
+                          "lra",
+                          "threshold"
+                        ],
+                        "additionalProperties": false
+                      },
+                      "target_offset_lu": {
+                        "type": "number"
+                      }
+                    },
+                    "required": [
+                      "method",
+                      "applied_gain_db",
+                      "peak_limited",
+                      "target",
+                      "measured_before",
+                      "target_offset_lu"
+                    ],
+                    "additionalProperties": false
                   }
                 },
                 "required": [
@@ -15725,6 +17250,76 @@
                   "properties": {
                     "job": {
                       "$ref": "#/$defs/job"
+                    },
+                    "master_loudness": {
+                      "type": "object",
+                      "properties": {
+                        "method": {
+                          "type": "string"
+                        },
+                        "applied_gain_db": {
+                          "type": "number"
+                        },
+                        "peak_limited": {
+                          "type": "boolean"
+                        },
+                        "target": {
+                          "type": "object",
+                          "properties": {
+                            "integrated_lufs": {
+                              "type": "number"
+                            },
+                            "true_peak_db": {
+                              "type": "number"
+                            },
+                            "lra": {
+                              "type": "number"
+                            }
+                          },
+                          "required": [
+                            "integrated_lufs",
+                            "true_peak_db",
+                            "lra"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "measured_before": {
+                          "type": "object",
+                          "properties": {
+                            "integrated_lufs": {
+                              "type": "number"
+                            },
+                            "true_peak_db": {
+                              "type": "number"
+                            },
+                            "lra": {
+                              "type": "number"
+                            },
+                            "threshold": {
+                              "type": "number"
+                            }
+                          },
+                          "required": [
+                            "integrated_lufs",
+                            "true_peak_db",
+                            "lra",
+                            "threshold"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "target_offset_lu": {
+                          "type": "number"
+                        }
+                      },
+                      "required": [
+                        "method",
+                        "applied_gain_db",
+                        "peak_limited",
+                        "target",
+                        "measured_before",
+                        "target_offset_lu"
+                      ],
+                      "additionalProperties": false
                     }
                   },
                   "required": [
@@ -15881,6 +17476,76 @@
                     "type": "null"
                   }
                 ]
+              },
+              "master_loudness": {
+                "type": "object",
+                "properties": {
+                  "method": {
+                    "type": "string"
+                  },
+                  "applied_gain_db": {
+                    "type": "number"
+                  },
+                  "peak_limited": {
+                    "type": "boolean"
+                  },
+                  "target": {
+                    "type": "object",
+                    "properties": {
+                      "integrated_lufs": {
+                        "type": "number"
+                      },
+                      "true_peak_db": {
+                        "type": "number"
+                      },
+                      "lra": {
+                        "type": "number"
+                      }
+                    },
+                    "required": [
+                      "integrated_lufs",
+                      "true_peak_db",
+                      "lra"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "measured_before": {
+                    "type": "object",
+                    "properties": {
+                      "integrated_lufs": {
+                        "type": "number"
+                      },
+                      "true_peak_db": {
+                        "type": "number"
+                      },
+                      "lra": {
+                        "type": "number"
+                      },
+                      "threshold": {
+                        "type": "number"
+                      }
+                    },
+                    "required": [
+                      "integrated_lufs",
+                      "true_peak_db",
+                      "lra",
+                      "threshold"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "target_offset_lu": {
+                    "type": "number"
+                  }
+                },
+                "required": [
+                  "method",
+                  "applied_gain_db",
+                  "peak_limited",
+                  "target",
+                  "measured_before",
+                  "target_offset_lu"
+                ],
+                "additionalProperties": false
               }
             },
             "required": [
@@ -15988,6 +17653,31 @@
                 "type": "null"
               }
             ]
+          },
+          "master_loudness": {
+            "type": "object",
+            "description": "Measures the mix with EBU R128 ebur128, applies linear gain toward integrated_lufs, and adds a sample-peak limiter only when needed to meet true_peak_db. lra is validated and reported but does not change processing. Omit to keep the plain linear mix.",
+            "properties": {
+              "integrated_lufs": {
+                "type": "number",
+                "minimum": -70,
+                "maximum": -5
+              },
+              "true_peak_db": {
+                "type": "number",
+                "minimum": -9,
+                "maximum": 0
+              },
+              "lra": {
+                "type": "number",
+                "minimum": 1,
+                "maximum": 50
+              }
+            },
+            "required": [
+              "integrated_lufs"
+            ],
+            "additionalProperties": false
           }
         },
         "required": [
@@ -16051,6 +17741,76 @@
                 "properties": {
                   "job": {
                     "$ref": "#/$defs/job"
+                  },
+                  "master_loudness": {
+                    "type": "object",
+                    "properties": {
+                      "method": {
+                        "type": "string"
+                      },
+                      "applied_gain_db": {
+                        "type": "number"
+                      },
+                      "peak_limited": {
+                        "type": "boolean"
+                      },
+                      "target": {
+                        "type": "object",
+                        "properties": {
+                          "integrated_lufs": {
+                            "type": "number"
+                          },
+                          "true_peak_db": {
+                            "type": "number"
+                          },
+                          "lra": {
+                            "type": "number"
+                          }
+                        },
+                        "required": [
+                          "integrated_lufs",
+                          "true_peak_db",
+                          "lra"
+                        ],
+                        "additionalProperties": false
+                      },
+                      "measured_before": {
+                        "type": "object",
+                        "properties": {
+                          "integrated_lufs": {
+                            "type": "number"
+                          },
+                          "true_peak_db": {
+                            "type": "number"
+                          },
+                          "lra": {
+                            "type": "number"
+                          },
+                          "threshold": {
+                            "type": "number"
+                          }
+                        },
+                        "required": [
+                          "integrated_lufs",
+                          "true_peak_db",
+                          "lra",
+                          "threshold"
+                        ],
+                        "additionalProperties": false
+                      },
+                      "target_offset_lu": {
+                        "type": "number"
+                      }
+                    },
+                    "required": [
+                      "method",
+                      "applied_gain_db",
+                      "peak_limited",
+                      "target",
+                      "measured_before",
+                      "target_offset_lu"
+                    ],
+                    "additionalProperties": false
                   }
                 },
                 "required": [
@@ -16150,6 +17910,76 @@
                   "properties": {
                     "job": {
                       "$ref": "#/$defs/job"
+                    },
+                    "master_loudness": {
+                      "type": "object",
+                      "properties": {
+                        "method": {
+                          "type": "string"
+                        },
+                        "applied_gain_db": {
+                          "type": "number"
+                        },
+                        "peak_limited": {
+                          "type": "boolean"
+                        },
+                        "target": {
+                          "type": "object",
+                          "properties": {
+                            "integrated_lufs": {
+                              "type": "number"
+                            },
+                            "true_peak_db": {
+                              "type": "number"
+                            },
+                            "lra": {
+                              "type": "number"
+                            }
+                          },
+                          "required": [
+                            "integrated_lufs",
+                            "true_peak_db",
+                            "lra"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "measured_before": {
+                          "type": "object",
+                          "properties": {
+                            "integrated_lufs": {
+                              "type": "number"
+                            },
+                            "true_peak_db": {
+                              "type": "number"
+                            },
+                            "lra": {
+                              "type": "number"
+                            },
+                            "threshold": {
+                              "type": "number"
+                            }
+                          },
+                          "required": [
+                            "integrated_lufs",
+                            "true_peak_db",
+                            "lra",
+                            "threshold"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "target_offset_lu": {
+                          "type": "number"
+                        }
+                      },
+                      "required": [
+                        "method",
+                        "applied_gain_db",
+                        "peak_limited",
+                        "target",
+                        "measured_before",
+                        "target_offset_lu"
+                      ],
+                      "additionalProperties": false
                     }
                   },
                   "required": [
@@ -16306,6 +18136,76 @@
                     "type": "null"
                   }
                 ]
+              },
+              "master_loudness": {
+                "type": "object",
+                "properties": {
+                  "method": {
+                    "type": "string"
+                  },
+                  "applied_gain_db": {
+                    "type": "number"
+                  },
+                  "peak_limited": {
+                    "type": "boolean"
+                  },
+                  "target": {
+                    "type": "object",
+                    "properties": {
+                      "integrated_lufs": {
+                        "type": "number"
+                      },
+                      "true_peak_db": {
+                        "type": "number"
+                      },
+                      "lra": {
+                        "type": "number"
+                      }
+                    },
+                    "required": [
+                      "integrated_lufs",
+                      "true_peak_db",
+                      "lra"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "measured_before": {
+                    "type": "object",
+                    "properties": {
+                      "integrated_lufs": {
+                        "type": "number"
+                      },
+                      "true_peak_db": {
+                        "type": "number"
+                      },
+                      "lra": {
+                        "type": "number"
+                      },
+                      "threshold": {
+                        "type": "number"
+                      }
+                    },
+                    "required": [
+                      "integrated_lufs",
+                      "true_peak_db",
+                      "lra",
+                      "threshold"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "target_offset_lu": {
+                    "type": "number"
+                  }
+                },
+                "required": [
+                  "method",
+                  "applied_gain_db",
+                  "peak_limited",
+                  "target",
+                  "measured_before",
+                  "target_offset_lu"
+                ],
+                "additionalProperties": false
               }
             },
             "required": [
@@ -16421,6 +18321,76 @@
                 "properties": {
                   "job": {
                     "$ref": "#/$defs/job"
+                  },
+                  "master_loudness": {
+                    "type": "object",
+                    "properties": {
+                      "method": {
+                        "type": "string"
+                      },
+                      "applied_gain_db": {
+                        "type": "number"
+                      },
+                      "peak_limited": {
+                        "type": "boolean"
+                      },
+                      "target": {
+                        "type": "object",
+                        "properties": {
+                          "integrated_lufs": {
+                            "type": "number"
+                          },
+                          "true_peak_db": {
+                            "type": "number"
+                          },
+                          "lra": {
+                            "type": "number"
+                          }
+                        },
+                        "required": [
+                          "integrated_lufs",
+                          "true_peak_db",
+                          "lra"
+                        ],
+                        "additionalProperties": false
+                      },
+                      "measured_before": {
+                        "type": "object",
+                        "properties": {
+                          "integrated_lufs": {
+                            "type": "number"
+                          },
+                          "true_peak_db": {
+                            "type": "number"
+                          },
+                          "lra": {
+                            "type": "number"
+                          },
+                          "threshold": {
+                            "type": "number"
+                          }
+                        },
+                        "required": [
+                          "integrated_lufs",
+                          "true_peak_db",
+                          "lra",
+                          "threshold"
+                        ],
+                        "additionalProperties": false
+                      },
+                      "target_offset_lu": {
+                        "type": "number"
+                      }
+                    },
+                    "required": [
+                      "method",
+                      "applied_gain_db",
+                      "peak_limited",
+                      "target",
+                      "measured_before",
+                      "target_offset_lu"
+                    ],
+                    "additionalProperties": false
                   }
                 },
                 "required": [
@@ -16520,6 +18490,76 @@
                   "properties": {
                     "job": {
                       "$ref": "#/$defs/job"
+                    },
+                    "master_loudness": {
+                      "type": "object",
+                      "properties": {
+                        "method": {
+                          "type": "string"
+                        },
+                        "applied_gain_db": {
+                          "type": "number"
+                        },
+                        "peak_limited": {
+                          "type": "boolean"
+                        },
+                        "target": {
+                          "type": "object",
+                          "properties": {
+                            "integrated_lufs": {
+                              "type": "number"
+                            },
+                            "true_peak_db": {
+                              "type": "number"
+                            },
+                            "lra": {
+                              "type": "number"
+                            }
+                          },
+                          "required": [
+                            "integrated_lufs",
+                            "true_peak_db",
+                            "lra"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "measured_before": {
+                          "type": "object",
+                          "properties": {
+                            "integrated_lufs": {
+                              "type": "number"
+                            },
+                            "true_peak_db": {
+                              "type": "number"
+                            },
+                            "lra": {
+                              "type": "number"
+                            },
+                            "threshold": {
+                              "type": "number"
+                            }
+                          },
+                          "required": [
+                            "integrated_lufs",
+                            "true_peak_db",
+                            "lra",
+                            "threshold"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "target_offset_lu": {
+                          "type": "number"
+                        }
+                      },
+                      "required": [
+                        "method",
+                        "applied_gain_db",
+                        "peak_limited",
+                        "target",
+                        "measured_before",
+                        "target_offset_lu"
+                      ],
+                      "additionalProperties": false
                     }
                   },
                   "required": [
@@ -16676,6 +18716,76 @@
                     "type": "null"
                   }
                 ]
+              },
+              "master_loudness": {
+                "type": "object",
+                "properties": {
+                  "method": {
+                    "type": "string"
+                  },
+                  "applied_gain_db": {
+                    "type": "number"
+                  },
+                  "peak_limited": {
+                    "type": "boolean"
+                  },
+                  "target": {
+                    "type": "object",
+                    "properties": {
+                      "integrated_lufs": {
+                        "type": "number"
+                      },
+                      "true_peak_db": {
+                        "type": "number"
+                      },
+                      "lra": {
+                        "type": "number"
+                      }
+                    },
+                    "required": [
+                      "integrated_lufs",
+                      "true_peak_db",
+                      "lra"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "measured_before": {
+                    "type": "object",
+                    "properties": {
+                      "integrated_lufs": {
+                        "type": "number"
+                      },
+                      "true_peak_db": {
+                        "type": "number"
+                      },
+                      "lra": {
+                        "type": "number"
+                      },
+                      "threshold": {
+                        "type": "number"
+                      }
+                    },
+                    "required": [
+                      "integrated_lufs",
+                      "true_peak_db",
+                      "lra",
+                      "threshold"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "target_offset_lu": {
+                    "type": "number"
+                  }
+                },
+                "required": [
+                  "method",
+                  "applied_gain_db",
+                  "peak_limited",
+                  "target",
+                  "measured_before",
+                  "target_offset_lu"
+                ],
+                "additionalProperties": false
               }
             },
             "required": [

@@ -17,6 +17,8 @@ use storycut_core::{
 };
 use uuid::Uuid;
 
+mod narration;
+
 #[derive(Debug)]
 pub struct CommandError {
     pub code: String,
@@ -56,6 +58,7 @@ pub fn supported_tools() -> Vec<String> {
         "storycut_timeline_apply",
         "storycut_storyboard_assemble",
         "storycut_focal_motion_apply",
+        "storycut_narration_assemble",
         "storycut_track_add",
         "storycut_track_update",
         "storycut_clip_add",
@@ -117,6 +120,7 @@ pub fn dispatch(workspace: &Path, tool: &str, args: Value) -> Result<Value, Comm
     match tool {
         "storycut_storyboard_assemble" => storyboard_assemble(workspace, &args),
         "storycut_focal_motion_apply" => focal_motion_apply(workspace, &args),
+        "storycut_narration_assemble" => narration::narration_assemble(workspace, &args),
         "storycut_capabilities" => {
             require_object_keys(&args, &[])?;
             let ffmpeg_available = command_available("ffmpeg", "-version");
@@ -795,6 +799,7 @@ pub fn dispatch(workspace: &Path, tool: &str, args: Value) -> Result<Value, Comm
                     "include_subtitles",
                     "start_tick",
                     "duration_ticks",
+                    "master_loudness",
                 ],
             )?;
             let id = field_str(&args, "project_id")?;
@@ -896,13 +901,16 @@ pub fn dispatch(workspace: &Path, tool: &str, args: Value) -> Result<Value, Comm
                 .ok_or_else(|| CommandError::new("INTERNAL_ERROR", "Project canvas is missing"))?;
             canvas.insert("width".into(), Value::from(width));
             canvas.insert("height".into(), Value::from(height));
-            let options = json!({
+            let mut options = json!({
                 "range_start_tick":start_tick,
                 "range_end_tick":end_tick,
                 "subtitle_mode":if include_subtitles {"burn"} else {"none"},
                 "encoder":"h264_cpu",
                 "overwrite":false
             });
+            if let Some(loudness) = args.get("master_loudness").filter(|v| !v.is_null()) {
+                options["master_loudness"] = loudness.clone();
+            }
             let project_path = store.project_path().map_err(core_error)?;
             let rendered = storycut_render::render_with_root(
                 &resized_project,
@@ -919,16 +927,19 @@ pub fn dispatch(workspace: &Path, tool: &str, args: Value) -> Result<Value, Comm
                     let relative = output.strip_prefix(&root).map_err(|_| {
                         CommandError::new("PATH_DENIED", "Preview range escaped workspace")
                     })?;
-                    let ready_job = json!({
-                        "job_id":job_id,"project_id":id,"source_revision":revision,
-                        "kind":"preview_range","state":"succeeded","progress":1.0,"last_event_seq":2,"failure_code":null,
-                        "artifacts":[{"artifact_id":format!("artifact-{job_id}"),"relative_path":relative.to_string_lossy(),
-                            "mime_type":"video/mp4","sha256":report.output_sha256,"size_bytes":metadata.len()}]
-                    });
+                    let ready_job = job_with_master_loudness(
+                        json!({
+                            "job_id":job_id,"project_id":id,"source_revision":revision,
+                            "kind":"preview_range","state":"succeeded","progress":1.0,"last_event_seq":2,"failure_code":null,
+                            "artifacts":[{"artifact_id":format!("artifact-{job_id}"),"relative_path":relative.to_string_lossy(),
+                                "mime_type":"video/mp4","sha256":report.output_sha256,"size_bytes":metadata.len()}]
+                        }),
+                        report.master_loudness.as_ref(),
+                    );
                     write_ready_job(&jobs, &job_id, &ready_job)?;
                     let completed = finalize_ready_job(workspace, &jobs, &job_id)?;
                     let mut response =
-                        success(Some(id), Some(revision), json!({"job":completed["job"]}));
+                        success(Some(id), Some(revision), job_data(&completed["job"]));
                     response["warnings"] = json!([{"code":"SYNCHRONOUS_PREVIEW","message":"Range preview currently completes before preview_range returns; cancellation is not available."}]);
                     return Ok(response);
                 }
@@ -942,7 +953,7 @@ pub fn dispatch(workspace: &Path, tool: &str, args: Value) -> Result<Value, Comm
                 &jobs.join(format!("{job_id}.result.json")),
                 &json!({"job":job}),
             )?;
-            let mut response = success(Some(id), Some(revision), json!({"job":job}));
+            let mut response = success(Some(id), Some(revision), job_data(&job));
             response["warnings"] = json!([{"code":"SYNCHRONOUS_PREVIEW","message":"Range preview currently completes before preview_range returns; cancellation is not available."}]);
             Ok(response)
         }
@@ -959,6 +970,7 @@ pub fn dispatch(workspace: &Path, tool: &str, args: Value) -> Result<Value, Comm
                     "encoder",
                     "range_start_tick",
                     "range_end_tick",
+                    "master_loudness",
                 ],
             )?;
             let id = field_str(&args, "project_id")?;
@@ -1082,16 +1094,19 @@ pub fn dispatch(workspace: &Path, tool: &str, args: Value) -> Result<Value, Comm
                     let relative = output.strip_prefix(&root).map_err(|_| {
                         CommandError::new("PATH_DENIED", "Output escaped workspace")
                     })?;
-                    let ready_job = json!({
-                        "job_id":job_id,"project_id":id,"source_revision":revision,"kind":"render",
-                        "state":"succeeded","progress":1.0,"last_event_seq":2,"failure_code":null,
-                        "artifacts":[{"artifact_id":format!("artifact-{job_id}"),"relative_path":relative.to_string_lossy(),
-                            "mime_type":"video/mp4","sha256":report.output_sha256,"size_bytes":metadata.len()}]
-                    });
+                    let ready_job = job_with_master_loudness(
+                        json!({
+                            "job_id":job_id,"project_id":id,"source_revision":revision,"kind":"render",
+                            "state":"succeeded","progress":1.0,"last_event_seq":2,"failure_code":null,
+                            "artifacts":[{"artifact_id":format!("artifact-{job_id}"),"relative_path":relative.to_string_lossy(),
+                                "mime_type":"video/mp4","sha256":report.output_sha256,"size_bytes":metadata.len()}]
+                        }),
+                        report.master_loudness.as_ref(),
+                    );
                     write_ready_job(&jobs, &job_id, &ready_job)?;
                     let completed = finalize_ready_job(workspace, &jobs, &job_id)?;
                     let mut response =
-                        success(Some(id), Some(revision), json!({"job":completed["job"]}));
+                        success(Some(id), Some(revision), job_data(&completed["job"]));
                     response["warnings"] = json!([{"code":"SYNCHRONOUS_RENDER","message":"Rendering currently completes before render_start returns; cancellation is not available."}]);
                     return Ok(response);
                 }
@@ -1104,7 +1119,7 @@ pub fn dispatch(workspace: &Path, tool: &str, args: Value) -> Result<Value, Comm
                 }
             };
             write_json_new(&result, &json!({"job":job}))?;
-            let mut response = success(Some(id), Some(revision), json!({"job":job}));
+            let mut response = success(Some(id), Some(revision), job_data(&job));
             response["warnings"] = json!([{"code":"SYNCHRONOUS_RENDER","message":"Rendering currently completes before render_start returns; cancellation and restart recovery are not available."}]);
             Ok(response)
         }
@@ -1139,7 +1154,7 @@ pub fn dispatch(workspace: &Path, tool: &str, args: Value) -> Result<Value, Comm
             Ok(success(
                 job["project_id"].as_str(),
                 job["source_revision"].as_u64(),
-                json!({"job":job}),
+                job_data(&job),
             ))
         }
         _ => Err(CommandError::new(
@@ -1486,6 +1501,8 @@ fn plan_storyboard(
                     stream_index: video_stream.index,
                     motion,
                     audio_policy: VideoAudioPolicy::Muted,
+                    hold_head_ticks: 0,
+                    hold_tail_ticks: 0,
                 };
                 if original_audio
                     && asset
@@ -1566,6 +1583,8 @@ fn plan_storyboard(
                     stream_index: video_stream.index,
                     motion: default_motion(duration, frame_ticks),
                     audio_policy: VideoAudioPolicy::Muted,
+                    hold_head_ticks: 0,
+                    hold_tail_ticks: 0,
                 })
             }
             AssetKind::Audio => unreachable!("visual kinds checked above"),
@@ -2192,6 +2211,7 @@ fn make_track(id: String, name: &str, kind: TrackKind) -> Track {
         muted: false,
         solo: false,
         gain_db: 0.0,
+        ducking: None,
     }
 }
 
@@ -2831,8 +2851,27 @@ fn existing_job_response(
     Ok(Some(success(
         Some(project_id),
         Some(revision),
-        json!({"job":record["job"]}),
+        job_data(&record["job"]),
     )))
+}
+
+fn job_with_master_loudness(mut job: Value, master_loudness: Option<&Value>) -> Value {
+    if let Some(report) = master_loudness.filter(|report| !report.is_null()) {
+        job["master_loudness"] = report.clone();
+    }
+    job
+}
+
+/// Keep the historical response alias sourced from the durable job record.
+fn job_data(job: &Value) -> Value {
+    let mut data = json!({"job":job});
+    if let Some(report) = job
+        .get("master_loudness")
+        .filter(|report| !report.is_null())
+    {
+        data["master_loudness"] = report.clone();
+    }
+    data
 }
 
 fn write_ready_job(jobs: &Path, job_id: &str, job: &Value) -> Result<(), CommandError> {
@@ -3074,7 +3113,7 @@ fn with_projection_warning(mut response: Value, warning: Option<&str>) -> Value 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use storycut_core::{ProbeStatus, Rational, Stream};
+    use storycut_core::{AudioClip, AudioSettings, ProbeStatus, Rational, Stream};
 
     fn fixture_image(id: String) -> Asset {
         Asset {
@@ -3264,6 +3303,7 @@ mod tests {
                         muted: false,
                         solo: false,
                         gain_db: 0.0,
+                        ducking: None,
                     },
                 }],
             )
@@ -3311,6 +3351,7 @@ mod tests {
                         muted: false,
                         solo: false,
                         gain_db: 0.0,
+                        ducking: None,
                     },
                 }],
             )
@@ -3549,6 +3590,167 @@ mod tests {
 
         assert_eq!(error.code, "INVALID_ARGUMENT");
         assert!(error.message.contains("even"));
+    }
+
+    #[test]
+    fn master_loudness_survives_render_replay_job_get_and_preview_range() {
+        let temporary = tempfile::tempdir().unwrap();
+        let workspace = temporary.path();
+        let audio_path = workspace.join("fixture.wav");
+        let generated_audio = Command::new("ffmpeg")
+            .args([
+                "-hide_banner",
+                "-nostdin",
+                "-v",
+                "error",
+                "-y",
+                "-f",
+                "lavfi",
+                "-i",
+                "sine=frequency=440:sample_rate=48000:duration=3",
+                "-af",
+                "volume=0.03",
+            ])
+            .arg(&audio_path)
+            .output()
+            .expect("launch ffmpeg to create the tiny synthetic audio fixture");
+        assert!(
+            generated_audio.status.success(),
+            "{}",
+            String::from_utf8_lossy(&generated_audio.stderr)
+        );
+
+        let mut canvas = Canvas::default();
+        canvas.width = 160;
+        canvas.height = 90;
+        canvas.fps = Rational { num: 8, den: 1 };
+        let store = ProjectStore::create(
+            workspace,
+            "loudness.storycut.json",
+            "loudness fixture",
+            canvas,
+            48_000,
+            "loudness-project-create",
+        )
+        .unwrap();
+        store
+            .import_assets(
+                0,
+                "loudness-audio-import",
+                false,
+                vec![fixture_audio("tone", 3)],
+            )
+            .unwrap();
+        let project_id = store.snapshot().unwrap().project_id;
+        let duration_ticks = 3 * TIMEBASE;
+        store
+            .apply(
+                1,
+                "loudness-track-and-clip",
+                false,
+                vec![
+                    Operation::TrackAdd {
+                        track: Track {
+                            id: "narration".into(),
+                            name: "Narration".into(),
+                            kind: TrackKind::Audio,
+                            locked: false,
+                            enabled: true,
+                            muted: false,
+                            solo: false,
+                            gain_db: 0.0,
+                            ducking: None,
+                        },
+                    },
+                    Operation::ClipAdd {
+                        clip: Clip::Audio(AudioClip {
+                            id: "tone-clip".into(),
+                            track_id: "narration".into(),
+                            asset_id: "tone".into(),
+                            start_tick: 0,
+                            duration_ticks,
+                            source_in_tick: 0,
+                            stream_index: 0,
+                            audio: AudioSettings {
+                                domain_duration_ticks: duration_ticks,
+                                sample_offset_tick: 0,
+                                gain_db: 0.0,
+                                pan: 0.0,
+                                muted: false,
+                                fade_in_ticks: 0,
+                                fade_out_ticks: 0,
+                                fade_curve: "linear_amplitude".into(),
+                            },
+                        }),
+                    },
+                ],
+            )
+            .unwrap();
+
+        let target = json!({"integrated_lufs":-16,"true_peak_db":-1.5});
+        let render_request = json!({
+            "project_id":project_id,"revision":2,"path":"normalized.mp4","overwrite":false,
+            "idempotency_key":"command-loudness-render","subtitle_mode":"none","encoder":"h264_cpu",
+            "range_start_tick":0,"range_end_tick":null,"master_loudness":target
+        });
+        let rendered =
+            dispatch(workspace, "storycut_render_start", render_request.clone()).unwrap();
+        let job_id = rendered["data"]["job"]["job_id"]
+            .as_str()
+            .expect("render returns its job id")
+            .to_owned();
+        let report = rendered["data"]["master_loudness"].clone();
+        assert!(!report.is_null(), "render returns a loudness report");
+        assert_eq!(rendered["data"]["job"]["master_loudness"], report);
+        assert_eq!(report["target"]["integrated_lufs"], json!(-16.0));
+
+        let jobs = private_dir(workspace, "jobs", false).unwrap();
+        let ready = read_job_file(&jobs.join(format!("{job_id}.ready.json"))).unwrap();
+        let durable = read_job_file(&jobs.join(format!("{job_id}.result.json"))).unwrap();
+        assert_eq!(ready["job"]["master_loudness"], report);
+        assert_eq!(durable["job"]["master_loudness"], report);
+
+        let replay = dispatch(workspace, "storycut_render_start", render_request).unwrap();
+        assert_eq!(replay["data"]["job"]["master_loudness"], report);
+        assert_eq!(replay["data"]["master_loudness"], report);
+        let fetched = dispatch(
+            workspace,
+            "storycut_job_get",
+            json!({"job_id":job_id,"include_preview":false}),
+        )
+        .unwrap();
+        assert_eq!(fetched["data"]["job"]["master_loudness"], report);
+        assert_eq!(fetched["data"]["master_loudness"], report);
+
+        let preview_request = json!({
+            "project_id":project_id,"revision":2,"idempotency_key":"command-loudness-preview",
+            "width":160,"include_subtitles":false,"start_tick":0,"duration_ticks":duration_ticks,
+            "master_loudness":target
+        });
+        let preview =
+            dispatch(workspace, "storycut_preview_range", preview_request.clone()).unwrap();
+        let preview_id = preview["data"]["job"]["job_id"]
+            .as_str()
+            .expect("range preview returns its job id")
+            .to_owned();
+        let preview_report = preview["data"]["job"]["master_loudness"].clone();
+        assert!(
+            !preview_report.is_null(),
+            "range preview returns a loudness report"
+        );
+        assert_eq!(preview["data"]["master_loudness"], preview_report);
+        let preview_ready = read_job_file(&jobs.join(format!("{preview_id}.ready.json"))).unwrap();
+        let preview_result =
+            read_job_file(&jobs.join(format!("{preview_id}.result.json"))).unwrap();
+        assert_eq!(preview_ready["job"]["master_loudness"], preview_report);
+        assert_eq!(preview_result["job"]["master_loudness"], preview_report);
+        let preview_replay =
+            dispatch(workspace, "storycut_preview_range", preview_request).unwrap();
+        assert_eq!(
+            preview_replay["data"]["job"]["master_loudness"],
+            preview_report
+        );
+        assert_eq!(preview_replay["data"]["master_loudness"], preview_report);
     }
 
     #[test]

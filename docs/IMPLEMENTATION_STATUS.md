@@ -1,5 +1,30 @@
 # StoryCut 實作與驗收紀錄
 
+## 2026-09-30：夜燈說書分支整合與回歸修正
+
+整合來源：`public/feat/night-lantern-profile` 的 `004de4e`，基底主線 `a9c964b`。環境：Windows x64、Rust 1.94.1、FFmpeg/ffprobe 8.1.1（libass）。
+
+- 修正 NL-01：`storycut_narration_assemble` outputSchema 描述真實時間、切點、核心與軌道欄位；正式 MCP 以真 PNG/WAV 建立工程、組裝、驗證 structuredContent，負 duration 範例拒絕。
+- 修正 NL-02：render 與 preview 的響度報告持久保存在 `job.master_loudness`；首次回應、同鍵重播與 `job_get` 的相容欄位 `data.master_loudness` 由同一紀錄產生。真 FFmpeg 測試回讀 ready/result JSON 並比對一致性。
+- CLI 傳入錯誤型別的 transition、align 或軌名時明確拒絕，不再靜默套用預設。回歸測試先重現錯誤提交，再確認修正後 revision 不變。
+- 限幅器加入延遲補償；先前 48 kHz 的脈衝延後 239 samples，現以真限幅／不限幅輸出比較事件時間、尾端脈衝及解碼樣本數通過。
+- ASS 改以原始事件時鐘渲染；局部 MP4 與精確 PNG 的移動／淡入和全片相符。修正前同時點淡入區亮度為 full=28518、partial=0，修正後測試通過；中文 Events 未知欄位亦不再觸發 byte-slicing panic。
+- 同步 Tauri lockfile 的兩個本地依賴；CI 加入契約、桌面 bridge 與夜燈真成片驗收，桌面測試在前端建置後執行。可攜版新增製作規格文件。
+- 本機驗證：workspace Rust **86/86 PASS**、桌面 bridge **4/4 PASS**、Python 契約 **59/59 PASS**、36 工具規格檢查 PASS、TypeScript/Vite 與 CLI/Tauri release 建置 PASS。全庫嚴格 Clippy 仍有既有警告，未將其列為 PASS。
+- 最終 release CLI 真媒體回歸：`target/night-lantern-acceptance/run-62f32nr1/夜燈說書/report.json` 為 **PASS**（1524 幀、50.8 秒、−16.0 LUFS、ASS、凍格、ducking）；`target/story-workflow-acceptance/run-kh8woqqw/夜燈說書/report.json` 為 **PASS**（72 圖、722 秒、21660 幀、MCP 焦點運鏡、旁白／對話／循環配樂、片尾淡出）；兩者來源 SHA 保持不變。`audio_offset.py` 另驗證兩秒前靜音、指定區間有音、區間後靜音。
+
+這次驗證使用隔離合成素材，沒有讀寫正式 YouTube 分集。旁白專用 GUI 面板、背景取消、true-peak 保證及 NL-03～NL-13 的新增功能仍未完成；不將此次主線整合當成全部產品規格已驗收。
+
+## 2026-09-29：夜燈說書製作規格（Night Lantern profile）
+
+依 fish-s2pro-tts《偷桃》v1 實際成片流程補齊能力，規格見 [NIGHT_LANTERN_PROFILE.md](NIGHT_LANTERN_PROFILE.md)。
+
+- 核心：`VideoClip.hold_head_ticks`／`hold_tail_ticks` 凍格把手（有把手片段拒絕修剪／分割、不可連原聲）；`Track.ducking` 側鏈壓低（`track_update` 設定、`null` 清除；來源須為另一條未被壓低的音訊軌）。
+- 渲染：把手以 `tpad` clone 重建可見範圍（含範圍全落在把手內）；有 ducking 時改為分軌匯流排＋`sidechaincompress`，否則維持原線性單一 amix；`master_loudness` 兩段式（`ebur128` 量測→線性增益＋必要時峰值限制器）；ASS／SSA 經字幕核心匯出後依 offset／範圍改寫事件時間交給 libass。
+- 指令：新增 `storycut_narration_assemble`（MCP／CLI 共 32 項實作工具；契約 36 項）；`render_start`／`preview_range` 接受 `master_loudness`，render 回應附響度報告。
+- 驗證：`cargo test --workspace` 全過（含新增 render 5、core 2、command 2 項）；Python 契約 59/59；`tests/product_acceptance/night_lantern.py` 真 CLI PASS，報告於 `target/night-lantern-acceptance/run-*/夜燈說書/report.json`。
+- 未做：桌面 GUI 尚無旁白組裝面板（CLI／MCP 可用）；把手片段的修剪／分割；ASS 與其他字幕文件同時燒錄；GPU 編碼。合成素材驗收不等於正式 YouTube 成片驗收。
+
 ## 2026-09-27：夜燈說書工作流程
 
 本節是本次新增功能的驗收；下方 2026-09-24 紀錄保留為既有基線。
@@ -24,7 +49,7 @@
 
 完整真媒體報告：`target/story-workflow-acceptance/run-44j_3c_j/夜燈說書/report.json`；成片與焦點首中尾圖保留在同目錄。原生操作證據：`target/native-story-acceptance/run-_gwer896/native-workflow-report.json`、`native-final-report.json` 與同目錄截圖。報告各自記錄受測 EXE SHA-256；完整成片在最後參數驗證及 UI 修正前產生，最後修正另有單元與原生回歸。這些均是隔離驗收素材，未使用或修改正式 YouTube 原始素材。
 
-自動人物辨識、語意對齊旁白、自動配樂 ducking 尚未提供。非常規 SAR／旋轉中繼資料的焦點座標尚未完成端到端驗收；一般方形像素 PNG 的焦點／運鏡已實測。渲染仍同步等待；背景取消與 GPU 限制見下方。
+自動人物辨識、語意對齊旁白尚未提供；配樂 ducking 已於 2026-09-29 加入，見上方紀錄。非常規 SAR／旋轉中繼資料的焦點座標尚未完成端到端驗收；一般方形像素 PNG 的焦點／運鏡已實測。渲染仍同步等待；背景取消與 GPU 限制見下方。
 
 ## 2026-09-24 基線
 
@@ -67,7 +92,7 @@
 ## 已知限制與未驗收
 
 - GUI/CLI/MCP 的渲染與預覽目前由呼叫端同步等待；MCP 單一連線在長渲染時無法同時處理另一請求。daemon IPC 骨架尚未接入這三種入口；`job_cancel`、背景工作與實際中途取消尚未完成。已連線 daemon 的同步請求沒有讀寫期限，未完成訊框可能卡住 dispatcher。ready manifest 前中斷的工作會標示 `JOB_INTERRUPTED`，不自動重試渲染；ready 後可驗證既有產物並恢復發布。
-- GPU/NVENC、所有轉場、ASS/VTT/SSA 樣式燒錄、高解析度長片效能尚未完成。來源影格或放大圖層超過 16,777,216 像素時在啟動渲染前回 `UNSUPPORTED_FEATURE`，避免巨大記憶體配置；其他未支援效果亦回明確錯誤。
+- GPU/NVENC、所有轉場、VTT 樣式燒錄、高解析度長片效能尚未完成。單份 ASS／SSA 樣式燒錄已於 2026-09-29 加入，多份 ASS／SSA 或混用其他字幕文件仍不支援。來源影格或放大圖層超過 16,777,216 像素時在啟動渲染前回 `UNSUPPORTED_FEATURE`，避免巨大記憶體配置；其他未支援效果亦回明確錯誤。
 - GUI 已在 native 對真工程完成開啟、加軌、精確影格與短片預覽、拖曳修剪及一次匯出；字幕編輯等其餘操作仍須逐項桌面驗收。瀏覽器 demo 不能當成這項證據。
 - Windows MSI/NSIS 已建置、尚未實際安裝；可攜版已在目前 Windows 主機解壓並啟動，尚未在乾淨 Windows 驗收。媒體功能需 FFmpeg/ffprobe；開發建置另需 Rust、Node。
 - RecordScreen 錄影未產生：當次環境沒有可用 RecordScreen MCP/loopback 服務，啟動程序被工具政策拒絕。原生視窗截圖不等於錄影。

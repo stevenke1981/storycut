@@ -8,6 +8,8 @@
 
 故事組裝支援依序加入大量圖片／影片，圖片預設各 10 秒，可搭配旁白、角色對話與循環配樂。圖片可點選主體焦點，套用推近、拉遠與上下左右平移；核心會限制取景邊界。桌面版、CLI 與 MCP 共用 `storycut_storyboard_assemble` 和 `storycut_focal_motion_apply`，詳細流程見 [夜燈說書操作指南](docs/STORY_WORKFLOW.md)。
 
+完整「旁白驅動」成片（片頭原生片＋標題、畫面跟著旁白段落、原生生成影片凍格把手、不縮短片長的 0.4 秒置中淡化、配樂被旁白側鏈壓低、−16 LUFS 主控響度、雙語 ASS 燒錄、alpha 串場字卡）使用 `storycut_narration_assemble` 與 `master_loudness`，規格與實測見 [夜燈說書製作規格](docs/NIGHT_LANTERN_PROFILE.md)。
+
 ## Windows 開發啟動
 
 需要 Rust、Node.js、npm、FFmpeg/ffprobe（在 `PATH`，字幕燒錄需 FFmpeg 有 libass）。在本目錄執行：

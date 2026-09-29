@@ -158,6 +158,23 @@ pub struct Track {
     pub muted: bool,
     pub solo: bool,
     pub gain_db: f64,
+    /// Optional sidechain ducking of this audio track by another audio track.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ducking: Option<Ducking>,
+}
+
+/// Explicit, editable sidechain compression: this track is lowered while
+/// `source_track_id` is audible. Rendered with FFmpeg `sidechaincompress`.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Ducking {
+    pub source_track_id: String,
+    /// Linear sidechain level above which gain reduction starts (0.000976563–1).
+    pub threshold: f64,
+    /// Compression ratio (1–20).
+    pub ratio: f64,
+    pub attack_ms: f64,
+    pub release_ms: f64,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -215,6 +232,14 @@ impl Clip {
             Self::Image(clip) => clip.duration_ticks,
             Self::Video(clip) => clip.duration_ticks,
             Self::Audio(clip) => clip.duration_ticks,
+        }
+    }
+
+    /// Length of source media consumed by the clip (video holds excluded).
+    pub fn source_span_ticks(&self) -> Option<u64> {
+        match self {
+            Self::Video(clip) => clip.source_span_ticks(),
+            _ => Some(self.duration_ticks()),
         }
     }
 
@@ -313,6 +338,30 @@ pub struct VideoClip {
     pub stream_index: u64,
     pub motion: Motion,
     pub audio_policy: VideoAudioPolicy,
+    /// Frozen copy of the first source frame shown before the source range.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub hold_head_ticks: u64,
+    /// Frozen copy of the last source frame shown after the source range.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub hold_tail_ticks: u64,
+}
+
+impl VideoClip {
+    /// Length of the source range actually read (timeline length minus holds).
+    pub fn source_span_ticks(&self) -> Option<u64> {
+        self.duration_ticks
+            .checked_sub(self.hold_head_ticks)?
+            .checked_sub(self.hold_tail_ticks)
+    }
+
+    pub fn has_holds(&self) -> bool {
+        self.hold_head_ticks != 0 || self.hold_tail_ticks != 0
+    }
+}
+
+#[allow(clippy::trivially_copy_pass_by_ref)]
+fn is_zero(value: &u64) -> bool {
+    *value == 0
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -468,6 +517,7 @@ impl Track {
             muted: false,
             solo: false,
             gain_db: 0.0,
+            ducking: None,
         }
     }
 }

@@ -126,6 +126,9 @@ pub struct RenderReport {
     pub ffmpeg_version: String,
     pub ffprobe_version: String,
     pub warnings: Vec<String>,
+    /// Present when `options.master_loudness` normalized the mix.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub master_loudness: Option<Value>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -174,6 +177,16 @@ struct Track {
     solo: bool,
     gain_db: f64,
     order: usize,
+    ducking: Option<Ducking>,
+}
+
+#[derive(Debug, Clone)]
+struct Ducking {
+    source_track_id: String,
+    threshold: f64,
+    ratio: f64,
+    attack_ms: f64,
+    release_ms: f64,
 }
 
 #[derive(Debug, Clone)]
@@ -188,6 +201,9 @@ struct Clip {
     stream_index: Option<u32>,
     motion: Option<Motion>,
     audio: Option<AudioSettings>,
+    /// Frozen first-frame head / last-frame tail of a video clip.
+    hold_head: u64,
+    hold_tail: u64,
 }
 
 #[derive(Debug, Clone)]
@@ -321,6 +337,17 @@ struct InputSpec {
     source_in: u64,
     duration: u64,
     loop_image: bool,
+    /// Present when the clip has frozen holds: how to rebuild the visible window.
+    hold: Option<HoldPlan>,
+}
+
+/// Visible window of a held video clip, expressed as a source read plus
+/// cloned frames: `start_pad` copies of the first read frame, then the read
+/// frames, then the last read frame repeated until `window` is filled.
+#[derive(Debug, Clone, Copy)]
+struct HoldPlan {
+    start_pad: u64,
+    window: u64,
 }
 
 /// Probe a local media file with ffprobe and compute a SHA-256 fingerprint.
@@ -483,8 +510,8 @@ fn render_impl(
     let (temporary, temp_file) = create_temporary_output(parent, &output)?;
     let _temporary_guard = TempArtifact(temporary.clone());
     drop(temp_file);
-    let sidecar = if let Some(contents) = subtitles {
-        match write_sidecar(parent, &output, &contents) {
+    let sidecar = if let Some((contents, extension)) = subtitles {
+        match write_sidecar(parent, &output, &contents, extension) {
             Ok(path) => Some(path),
             Err(error) => {
                 let _ = fs::remove_file(&temporary);
@@ -495,6 +522,21 @@ fn render_impl(
         None
     };
 
+    let loudness = match opts.master_loudness {
+        None => None,
+        Some(target) => {
+            match measure_loudness(&snapshot, &audio_inputs, sample_count, target, parent) {
+                Ok(plan) => Some(plan),
+                Err(error) => {
+                    if let Some(path) = sidecar.as_ref() {
+                        let _ = fs::remove_file(path);
+                    }
+                    let _ = fs::remove_file(&temporary);
+                    return Err(error);
+                }
+            }
+        }
+    };
     let run_result = run_render(
         &snapshot,
         &video_inputs,
@@ -506,6 +548,7 @@ fn render_impl(
         frame_count,
         sample_count,
         &opts.subtitle_mode,
+        loudness.as_ref(),
     );
     if let Some(path) = sidecar.as_ref() {
         let _ = fs::remove_file(path);
@@ -567,7 +610,7 @@ fn render_impl(
     publish_without_overwrite(&temporary, &output)?;
 
     let warnings = if opts.subtitle_mode == "burn" {
-        vec!["SRT burn renders basic cue timing and text; richer subtitle formats and style payloads are unsupported.".into()]
+        vec!["Subtitle burn: SRT renders cue timing and plain text; ASS/SSA keep their styles through libass; VTT is unsupported.".into()]
     } else {
         Vec::new()
     };
@@ -591,6 +634,7 @@ fn render_impl(
         ffmpeg_version,
         ffprobe_version,
         warnings,
+        master_loudness: loudness.as_ref().map(LoudnessPlan::report),
     })
 }
 
@@ -855,6 +899,72 @@ struct RenderOptions {
     range_start: u64,
     range_end: Option<u64>,
     subtitle_mode: String,
+    master_loudness: Option<LoudnessTarget>,
+}
+
+/// Explicit output option: EBU R128 normalization of the final mix.
+#[derive(Debug, Clone, Copy)]
+struct LoudnessTarget {
+    integrated_lufs: f64,
+    true_peak_db: f64,
+    lra: f64,
+}
+
+/// Target plus first-pass measurements, applied with linear `loudnorm`.
+#[derive(Debug, Clone)]
+struct LoudnessPlan {
+    target: LoudnessTarget,
+    measured_i: f64,
+    measured_tp: f64,
+    measured_lra: f64,
+    measured_thresh: f64,
+    offset: f64,
+}
+
+impl LoudnessPlan {
+    /// Linear gain to the target integrated loudness. When that gain would push
+    /// the measured true peak over the ceiling, a transparent-as-possible
+    /// limiter holds the ceiling (sample peak; noted in the report). FFmpeg's
+    /// own `loudnorm linear=true` silently switches to dynamic mode in that
+    /// case, which does not meet the explicit contract.
+    fn gain_db(&self) -> f64 {
+        self.target.integrated_lufs - self.measured_i
+    }
+
+    fn limited(&self) -> bool {
+        self.measured_tp + self.gain_db() > self.target.true_peak_db
+    }
+
+    fn filter(&self) -> String {
+        let mut chain = format!("volume={:.4}dB", self.gain_db());
+        if self.limited() {
+            chain.push_str(&format!(
+                ",alimiter=limit={:.6}:attack=5:release=50:level=disabled:latency=1",
+                10_f64.powf(self.target.true_peak_db / 20.0)
+            ));
+        }
+        chain
+    }
+
+    fn report(&self) -> Value {
+        serde_json::json!({
+            "method": "two-pass: ebur128 measurement, then linear gain (+ sample-peak limiter when needed)",
+            "applied_gain_db": self.gain_db(),
+            "peak_limited": self.limited(),
+            "target": {
+                "integrated_lufs": self.target.integrated_lufs,
+                "true_peak_db": self.target.true_peak_db,
+                "lra": self.target.lra
+            },
+            "measured_before": {
+                "integrated_lufs": self.measured_i,
+                "true_peak_db": self.measured_tp,
+                "lra": self.measured_lra,
+                "threshold": self.measured_thresh
+            },
+            "target_offset_lu": self.offset
+        })
+    }
 }
 
 fn parse_options(value: &Value) -> Result<RenderOptions, RenderError> {
@@ -882,10 +992,42 @@ fn parse_options(value: &Value) -> Result<RenderOptions, RenderError> {
             "encoder {encoder} is not enabled; h264_nvenc has not been validated in this environment"
         )));
     }
+    let master_loudness = match value.get("master_loudness").filter(|v| !v.is_null()) {
+        None => None,
+        Some(loudness) => {
+            let item = object(loudness, "master_loudness")?;
+            for key in item.keys() {
+                if !matches!(key.as_str(), "integrated_lufs" | "true_peak_db" | "lra") {
+                    return Err(RenderError::InvalidOptions(format!(
+                        "unknown master_loudness field {key}"
+                    )));
+                }
+            }
+            let integrated_lufs = number(item, "integrated_lufs")?.ok_or_else(|| {
+                RenderError::InvalidOptions("master_loudness.integrated_lufs is required".into())
+            })?;
+            let true_peak_db = number(item, "true_peak_db")?.unwrap_or(-1.5);
+            let lra = number(item, "lra")?.unwrap_or(11.0);
+            validate_finite_range(
+                "master_loudness.integrated_lufs",
+                integrated_lufs,
+                -70.0,
+                -5.0,
+            )?;
+            validate_finite_range("master_loudness.true_peak_db", true_peak_db, -9.0, 0.0)?;
+            validate_finite_range("master_loudness.lra", lra, 1.0, 50.0)?;
+            Some(LoudnessTarget {
+                integrated_lufs,
+                true_peak_db,
+                lra,
+            })
+        }
+    };
     Ok(RenderOptions {
         range_start: optional_u64(value, "range_start_tick")?.unwrap_or(0),
         range_end: optional_u64(value, "range_end_tick")?,
         subtitle_mode,
+        master_loudness,
     })
 }
 
@@ -998,6 +1140,7 @@ fn parse_project(value: &Value) -> Result<ProjectSnapshot, RenderError> {
             solo: item.get("solo").and_then(Value::as_bool).unwrap_or(false),
             gain_db: gain,
             order,
+            ducking: parse_ducking(item)?,
         });
     }
 
@@ -1029,6 +1172,8 @@ fn parse_project(value: &Value) -> Result<ProjectSnapshot, RenderError> {
             stream_index: optional_u32(item, "stream_index")?,
             motion,
             audio,
+            hold_head: optional_u64(clip, "hold_head_ticks")?.unwrap_or(0),
+            hold_tail: optional_u64(clip, "hold_tail_ticks")?.unwrap_or(0),
         });
     }
 
@@ -1061,6 +1206,26 @@ fn parse_project(value: &Value) -> Result<ProjectSnapshot, RenderError> {
         transitions,
         subtitles: array(obj, "subtitles")?.to_vec(),
     })
+}
+
+fn parse_ducking(track: &Map<String, Value>) -> Result<Option<Ducking>, RenderError> {
+    let Some(value) = track.get("ducking").filter(|value| !value.is_null()) else {
+        return Ok(None);
+    };
+    let item = object(value, "track.ducking")?;
+    let read = |name: &str, min: f64, max: f64| -> Result<f64, RenderError> {
+        let value = number(item, name)?
+            .ok_or_else(|| RenderError::InvalidProject(format!("ducking.{name} is required")))?;
+        validate_finite_range(&format!("ducking.{name}"), value, min, max)?;
+        Ok(value)
+    };
+    Ok(Some(Ducking {
+        source_track_id: required_string(item, "source_track_id")?.to_owned(),
+        threshold: read("threshold", 0.000_976_563, 1.0)?,
+        ratio: read("ratio", 1.0, 20.0)?,
+        attack_ms: read("attack_ms", 0.01, 2000.0)?,
+        release_ms: read("release_ms", 0.01, 9000.0)?,
+    }))
 }
 
 fn parse_motion(
@@ -1501,14 +1666,21 @@ fn build_video_inputs(
             project.height,
             &clip.id,
         )?;
-        let source_offset = clip
-            .source_in
-            .checked_add(visible_start - clip.start)
-            .ok_or_else(|| {
-                RenderError::InvalidProject(format!("clip {} source offset overflow", clip.id))
-            })?;
         let visible_duration = visible_end - visible_start;
-        validate_source_range(clip, facts, source_offset, visible_duration)?;
+        let (source_offset, read_duration, hold) = if clip.kind == "video"
+            && (clip.hold_head != 0 || clip.hold_tail != 0)
+        {
+            hold_read_window(clip, visible_start, visible_end, project.frame_ticks)?
+        } else {
+            let offset = clip
+                .source_in
+                .checked_add(visible_start - clip.start)
+                .ok_or_else(|| {
+                    RenderError::InvalidProject(format!("clip {} source offset overflow", clip.id))
+                })?;
+            (offset, visible_duration, None)
+        };
+        validate_source_range(clip, facts, source_offset, read_duration)?;
         let transition_fade = project
             .transitions
             .iter()
@@ -1520,8 +1692,9 @@ fn build_video_inputs(
             clip_id: clip.id.clone(),
             path: path.clone(),
             source_in: source_offset,
-            duration: visible_duration,
+            duration: read_duration,
             loop_image: clip.kind == "image",
+            hold,
         };
         result.push((
             input,
@@ -1630,6 +1803,7 @@ fn build_audio_inputs(
             source_in: source_offset,
             duration: visible_duration,
             loop_image: false,
+            hold: None,
         };
         result.push((
             input,
@@ -1641,6 +1815,45 @@ fn build_audio_inputs(
         ));
     }
     Ok(result)
+}
+
+/// Maps the visible timeline window of a held video clip to a source read.
+/// Returns `(source_in, read_duration, plan)`. When the window lies entirely
+/// inside a hold, a single boundary frame is read and cloned.
+fn hold_read_window(
+    clip: &Clip,
+    visible_start: u64,
+    visible_end: u64,
+    frame_ticks: u64,
+) -> Result<(u64, u64, Option<HoldPlan>), RenderError> {
+    let span = clip
+        .duration
+        .checked_sub(clip.hold_head)
+        .and_then(|rest| rest.checked_sub(clip.hold_tail))
+        .filter(|span| *span >= frame_ticks)
+        .ok_or_else(|| {
+            RenderError::InvalidProject(format!(
+                "video clip {} holds leave no source frames",
+                clip.id
+            ))
+        })?;
+    let a = visible_start - clip.start;
+    let b = visible_end - clip.start;
+    let head = clip.hold_head;
+    let src_a = a.saturating_sub(head).min(span);
+    let src_b = b.saturating_sub(head).min(span);
+    let window = b - a;
+    let (read_in, read_len, start_pad) = if src_b > src_a {
+        (src_a, src_b - src_a, head.saturating_sub(a).min(window))
+    } else if a < head {
+        (0, frame_ticks, 0)
+    } else {
+        (span - frame_ticks, frame_ticks, 0)
+    };
+    let source_in = clip.source_in.checked_add(read_in).ok_or_else(|| {
+        RenderError::InvalidProject(format!("clip {} source offset overflow", clip.id))
+    })?;
+    Ok((source_in, read_len, Some(HoldPlan { start_pad, window })))
 }
 
 fn validate_source_range(
@@ -1701,9 +1914,12 @@ fn prepare_subtitles(
     mode: &str,
     range_start: u64,
     range_end: u64,
-) -> Result<Option<String>, RenderError> {
+) -> Result<Option<(String, &'static str)>, RenderError> {
     if mode == "none" {
         return Ok(None);
+    }
+    if let Some(document) = prepare_styled_subtitles(project)? {
+        return Ok(Some((document, "ass")));
     }
     let tracks: HashMap<_, _> = project.tracks.iter().map(|t| (t.id.as_str(), t)).collect();
     let active_tracks: HashSet<_> = project
@@ -1786,7 +2002,50 @@ fn prepare_subtitles(
         document.push_str(text);
         document.push_str("\r\n");
     }
-    Ok(Some(document))
+    Ok(Some((document, "srt")))
+}
+
+/// ASS/SSA burn: the active document is exported through the subtitle core
+/// (applying offset and cue edits while preserving styles). Event timing stays
+/// absolute so move/fade/karaoke clocks survive range previews. Returns `None` when no styled
+/// document is active so the SRT path can run.
+fn prepare_styled_subtitles(project: &ProjectSnapshot) -> Result<Option<String>, RenderError> {
+    let active_tracks: HashSet<_> = project
+        .tracks
+        .iter()
+        .filter(|t| t.kind == "subtitle" && t.enabled)
+        .map(|t| t.id.as_str())
+        .collect();
+    let active: Vec<&Value> = project
+        .subtitles
+        .iter()
+        .filter(|sub| {
+            sub.get("track_id")
+                .and_then(Value::as_str)
+                .is_some_and(|id| active_tracks.contains(id))
+        })
+        .collect();
+    let styled = active.iter().any(|sub| {
+        matches!(
+            sub.get("format").and_then(Value::as_str),
+            Some("ass" | "ssa")
+        )
+    });
+    if !styled {
+        return Ok(None);
+    }
+    if active.len() != 1 {
+        return Err(RenderError::UnsupportedFeature(
+            "burning an ASS/SSA document together with other subtitle documents is unsupported; merge them into one styled document".into(),
+        ));
+    }
+    let subtitle: storycut_core::Subtitle = serde_json::from_value(active[0].clone())
+        .map_err(|error| RenderError::InvalidProject(format!("subtitle document: {error}")))?;
+    let export =
+        storycut_subtitle::export_subtitle(&subtitle, subtitle.format).map_err(|error| {
+            RenderError::UnsupportedFeature(format!("styled subtitle burn: {error}"))
+        })?;
+    Ok(Some(export.content))
 }
 
 fn run_render(
@@ -1800,6 +2059,7 @@ fn run_render(
     frame_count: u64,
     sample_count: u64,
     subtitle_mode: &str,
+    loudness: Option<&LoudnessPlan>,
 ) -> Result<(), RenderError> {
     let total_seconds = ticks_to_seconds(duration_ticks);
     let mut args: Vec<String> = vec![
@@ -1922,12 +2182,25 @@ fn run_render(
             "({}-overlay_h)*{:.9}+({y_motion})*{}",
             project.height, motion.anchor_y, project.height
         );
-        let transform = format!(
-            "[{idx}:v:{stream_ordinal}]trim=duration={},setpts=PTS-STARTPTS+{start_seconds}/TB,fps={}/{},scale={scaled_w}:{scaled_h}:flags=lanczos,format=rgba",
-            ticks_to_seconds(spec.duration),
-            project.fps_num,
-            project.fps_den
-        );
+        let transform = if let Some(hold) = spec.hold {
+            // Rebuild the held window at the project rate first, then place it.
+            format!(
+                "[{idx}:v:{stream_ordinal}]trim=duration={},setpts=PTS-STARTPTS,fps={}/{},tpad=start_mode=clone:start_duration={}:stop_mode=clone:stop_duration={},trim=duration={},setpts=PTS-STARTPTS+{start_seconds}/TB,scale={scaled_w}:{scaled_h}:flags=lanczos,format=rgba",
+                ticks_to_seconds(spec.duration),
+                project.fps_num,
+                project.fps_den,
+                ticks_to_seconds(hold.start_pad),
+                ticks_to_seconds(hold.window),
+                ticks_to_seconds(hold.window),
+            )
+        } else {
+            format!(
+                "[{idx}:v:{stream_ordinal}]trim=duration={},setpts=PTS-STARTPTS+{start_seconds}/TB,fps={}/{},scale={scaled_w}:{scaled_h}:flags=lanczos,format=rgba",
+                ticks_to_seconds(spec.duration),
+                project.fps_num,
+                project.fps_den
+            )
+        };
         graph.push(format!("{transform}[layer{ordinal}raw]"));
         let mut layer_label = format!("layer{ordinal}raw");
         if !motion.scale_is_static() {
@@ -1992,15 +2265,96 @@ fn run_render(
             .replace('\\', "\\\\")
             .replace(':', "\\:")
             .replace('\'', "\\'");
-        graph.push(format!(
-            "[{base_label}]subtitles=filename='{escaped}'[vout]"
-        ));
+        if subtitle_path.extension() == Some(OsStr::new("ass")) {
+            // Keep styled events on their original clock. Clipping Dialogue
+            // start/end would restart relative move, fade and karaoke effects.
+            graph.push(format!(
+                "[{base_label}]setpts=PTS+{}/TB,subtitles=filename='{escaped}',setpts=PTS-STARTPTS[vout]",
+                ticks_to_seconds(range_start)
+            ));
+        } else {
+            graph.push(format!(
+                "[{base_label}]subtitles=filename='{escaped}'[vout]"
+            ));
+        }
         "vout"
     } else {
         base_label.as_str()
     };
 
+    push_audio_graph(&mut graph, project, audio_inputs, &input_map, sample_count)?;
+    let audio_out = if let Some(loudness) = loudness {
+        graph.push(format!(
+            "[aout]{},aresample={}:async=0,apad=whole_len={sample_count},atrim=end_sample={sample_count}[aoutn]",
+            loudness.filter(), project.audio_sample_rate
+        ));
+        "[aoutn]"
+    } else {
+        "[aout]"
+    };
+    let (filter_script_path, mut filter_script) =
+        create_temporary_filter_script(output.parent().unwrap_or_else(|| Path::new(".")))?;
+    let _filter_script_guard = TempArtifact(filter_script_path.clone());
+    filter_script.write_all(graph.join(";").as_bytes())?;
+    drop(filter_script);
+    let filter_script_name = filter_script_path
+        .file_name()
+        .and_then(OsStr::to_str)
+        .ok_or_else(|| {
+            RenderError::InvalidOptions("temporary filter graph filename is not UTF-8".into())
+        })?;
+
+    args.extend([
+        "-filter_complex_script".into(),
+        filter_script_name.to_owned(),
+        "-map".into(),
+        format!("[{video_label}]"),
+        "-map".into(),
+        audio_out.into(),
+        "-frames:v".into(),
+        frame_count.to_string(),
+        "-c:v".into(),
+        "libx264".into(),
+        "-preset".into(),
+        "medium".into(),
+        "-crf".into(),
+        "18".into(),
+        "-pix_fmt".into(),
+        "yuv420p".into(),
+        "-r".into(),
+        fps_string(project).into(),
+        "-c:a".into(),
+        "aac".into(),
+        "-b:a".into(),
+        "192k".into(),
+        "-ar".into(),
+        project.audio_sample_rate.to_string(),
+        "-movflags".into(),
+        "+faststart".into(),
+        output.to_string_lossy().into_owned(),
+    ]);
+    let result = Command::new("ffmpeg")
+        .current_dir(output.parent().unwrap_or_else(|| Path::new(".")))
+        .args(&args)
+        .output()?;
+    if !result.status.success() {
+        return Err(process_error("ffmpeg", result));
+    }
+    let _ = subtitle_mode;
+    Ok(())
+}
+
+/// Appends the audio mix (per-clip envelopes, optional track ducking) ending in
+/// `[aout]`. Shared by the render pass and the loudness measurement pass.
+fn push_audio_graph(
+    graph: &mut Vec<String>,
+    project: &ProjectSnapshot,
+    audio_inputs: &[(InputSpec, usize, Track, AudioSettings, u64, u64)],
+    input_map: &HashMap<String, usize>,
+    sample_count: u64,
+) -> Result<(), RenderError> {
     let mut audio_labels = Vec::new();
+    let mut audio_label_tracks: Vec<Track> = Vec::new();
     for (ordinal, (spec, stream_ordinal, track, settings, start_sample, end_sample)) in
         audio_inputs.iter().enumerate()
     {
@@ -2035,7 +2389,9 @@ fn run_render(
             ticks_to_seconds(spec.duration), project.audio_sample_rate
         ));
         audio_labels.push(format!("[{label}]"));
+        audio_label_tracks.push(track.clone());
     }
+    let audio_labels = apply_track_ducking(graph, audio_labels, &audio_label_tracks, sample_count);
     if audio_labels.is_empty() {
         graph.push(format!(
             "anullsrc=r={}:cl=stereo,atrim=end_sample={sample_count}[aout]",
@@ -2047,56 +2403,183 @@ fn run_render(
             audio_labels.join(""), audio_labels.len()
         ));
     }
-    let (filter_script_path, mut filter_script) =
-        create_temporary_filter_script(output.parent().unwrap_or_else(|| Path::new(".")))?;
-    let _filter_script_guard = TempArtifact(filter_script_path.clone());
-    filter_script.write_all(graph.join(";").as_bytes())?;
-    drop(filter_script);
-    let filter_script_name = filter_script_path
-        .file_name()
-        .and_then(OsStr::to_str)
-        .ok_or_else(|| {
-            RenderError::InvalidOptions("temporary filter graph filename is not UTF-8".into())
-        })?;
+    Ok(())
+}
 
+/// First loudness pass: renders only the audio mix and reads `loudnorm`'s
+/// JSON measurement. The video graph is not decoded.
+fn measure_loudness(
+    project: &ProjectSnapshot,
+    audio_inputs: &[(InputSpec, usize, Track, AudioSettings, u64, u64)],
+    sample_count: u64,
+    target: LoudnessTarget,
+    work_dir: &Path,
+) -> Result<LoudnessPlan, RenderError> {
+    if audio_inputs.is_empty() {
+        return Err(RenderError::UnsupportedFeature(
+            "master_loudness needs at least one audible audio clip in the render range".into(),
+        ));
+    }
+    let mut args: Vec<String> = vec![
+        "-hide_banner".into(),
+        "-nostdin".into(),
+        "-nostats".into(),
+        "-loglevel".into(),
+        "info".into(),
+    ];
+    let mut input_map = HashMap::new();
+    for (index, (spec, ..)) in audio_inputs.iter().enumerate() {
+        args.extend([
+            "-ss".into(),
+            ticks_to_seconds(spec.source_in),
+            "-t".into(),
+            ticks_to_seconds(spec.duration),
+            "-threads:a".into(),
+            "1".into(),
+            "-i".into(),
+            spec.path.to_string_lossy().into_owned(),
+        ]);
+        input_map.insert(spec.clip_id.clone(), index);
+    }
+    let mut graph = Vec::new();
+    push_audio_graph(&mut graph, project, audio_inputs, &input_map, sample_count)?;
+    // ebur128 is FFmpeg's reference meter; loudnorm's in-graph `input_i`
+    // disagreed with it by >2 LU on ducked narration mixes.
+    graph.push("[aout]ebur128=peak=true:framelog=quiet[ameasure]".to_owned());
+    let (script_path, mut script) = create_temporary_filter_script(work_dir)?;
+    let _guard = TempArtifact(script_path.clone());
+    script.write_all(graph.join(";").as_bytes())?;
+    drop(script);
     args.extend([
         "-filter_complex_script".into(),
-        filter_script_name.to_owned(),
+        script_path.to_string_lossy().into_owned(),
         "-map".into(),
-        format!("[{video_label}]"),
-        "-map".into(),
-        "[aout]".into(),
-        "-frames:v".into(),
-        frame_count.to_string(),
-        "-c:v".into(),
-        "libx264".into(),
-        "-preset".into(),
-        "medium".into(),
-        "-crf".into(),
-        "18".into(),
-        "-pix_fmt".into(),
-        "yuv420p".into(),
-        "-r".into(),
-        fps_string(project).into(),
-        "-c:a".into(),
-        "aac".into(),
-        "-b:a".into(),
-        "192k".into(),
-        "-ar".into(),
-        project.audio_sample_rate.to_string(),
-        "-movflags".into(),
-        "+faststart".into(),
-        output.to_string_lossy().into_owned(),
+        "[ameasure]".into(),
+        "-f".into(),
+        "null".into(),
+        "-".into(),
     ]);
-    let result = Command::new("ffmpeg")
-        .current_dir(output.parent().unwrap_or_else(|| Path::new(".")))
-        .args(&args)
-        .output()?;
+    let result = Command::new("ffmpeg").args(&args).output()?;
     if !result.status.success() {
-        return Err(process_error("ffmpeg", result));
+        return Err(process_error("ffmpeg loudness measurement", result));
     }
-    let _ = subtitle_mode;
-    Ok(())
+    let stderr = String::from_utf8_lossy(&result.stderr);
+    let summary = stderr
+        .rfind("Summary:")
+        .map(|index| &stderr[index..])
+        .ok_or_else(|| RenderError::VerificationFailed("ebur128 summary was not printed".into()))?;
+    let value_after = |label: &str| -> Result<f64, RenderError> {
+        summary
+            .lines()
+            .map(str::trim)
+            .find_map(|line| line.strip_prefix(label))
+            .and_then(|rest| rest.split_whitespace().next())
+            .and_then(|value| value.parse::<f64>().ok())
+            .filter(|value| value.is_finite())
+            .ok_or_else(|| {
+                RenderError::VerificationFailed(format!(
+                    "ebur128 {label} is missing or not finite (silent mix?)"
+                ))
+            })
+    };
+    let measured_i = value_after("I:")?;
+    Ok(LoudnessPlan {
+        target,
+        measured_i,
+        measured_tp: value_after("Peak:")?,
+        measured_lra: value_after("LRA:")?,
+        measured_thresh: value_after("Threshold:")?,
+        offset: target.integrated_lufs - measured_i,
+    })
+}
+
+/// Groups clip signals into per-track buses when any audible track is ducked
+/// and inserts `sidechaincompress` keyed by the source track's bus. Without
+/// ducking the clip labels are returned unchanged, preserving the plain linear
+/// mix contract.
+fn apply_track_ducking(
+    graph: &mut Vec<String>,
+    labels: Vec<String>,
+    tracks: &[Track],
+    sample_count: u64,
+) -> Vec<String> {
+    let mut order: Vec<&str> = Vec::new();
+    let mut members: HashMap<&str, Vec<&str>> = HashMap::new();
+    for (label, track) in labels.iter().zip(tracks) {
+        if !members.contains_key(track.id.as_str()) {
+            order.push(track.id.as_str());
+        }
+        members
+            .entry(track.id.as_str())
+            .or_default()
+            .push(label.as_str());
+    }
+    let track_by_id: HashMap<&str, &Track> = tracks.iter().map(|t| (t.id.as_str(), t)).collect();
+    let ducked: Vec<(&str, &Ducking)> = order
+        .iter()
+        .filter_map(|id| {
+            track_by_id[id]
+                .ducking
+                .as_ref()
+                .filter(|d| members.contains_key(d.source_track_id.as_str()))
+                .map(|d| (*id, d))
+        })
+        .collect();
+    if ducked.is_empty() {
+        return labels;
+    }
+    let mut sidechain_uses: HashMap<&str, usize> = HashMap::new();
+    for (_, ducking) in &ducked {
+        *sidechain_uses
+            .entry(ducking.source_track_id.as_str())
+            .or_default() += 1;
+    }
+    let mut bus_label: HashMap<&str, String> = HashMap::new();
+    let mut sidechain_labels: HashMap<&str, Vec<String>> = HashMap::new();
+    for (bus_index, id) in order.iter().enumerate() {
+        let inputs = &members[id];
+        let bus = format!("bus{bus_index}");
+        let mixed = if inputs.len() == 1 {
+            format!("{}anull", inputs[0])
+        } else {
+            format!(
+                "{}amix=inputs={}:duration=longest:dropout_transition=0:normalize=0",
+                inputs.join(""),
+                inputs.len()
+            )
+        };
+        if let Some(uses) = sidechain_uses.get(id) {
+            let mut outs = vec![format!("[{bus}]")];
+            let mut sidechains = Vec::new();
+            for use_index in 0..*uses {
+                let label = format!("{bus}sc{use_index}");
+                outs.push(format!("[{label}]"));
+                sidechains.push(format!("[{label}]"));
+            }
+            graph.push(format!(
+                "{mixed},atrim=end_sample={sample_count},asplit={}{}",
+                uses + 1,
+                outs.join("")
+            ));
+            sidechain_labels.insert(id, sidechains);
+        } else {
+            graph.push(format!("{mixed},atrim=end_sample={sample_count}[{bus}]"));
+        }
+        bus_label.insert(id, format!("[{bus}]"));
+    }
+    for (bus_index, (id, ducking)) in ducked.iter().enumerate() {
+        let sidechain = sidechain_labels
+            .get_mut(ducking.source_track_id.as_str())
+            .and_then(Vec::pop)
+            .expect("sidechain split planned for every ducked source use");
+        let out = format!("duck{bus_index}");
+        graph.push(format!(
+            "{}{sidechain}sidechaincompress=threshold={:.9}:ratio={:.6}:attack={:.6}:release={:.6}:makeup=1,atrim=end_sample={sample_count}[{out}]",
+            bus_label[id], ducking.threshold, ducking.ratio, ducking.attack_ms, ducking.release_ms
+        ));
+        bus_label.insert(id, format!("[{out}]"));
+    }
+    order.iter().map(|id| bus_label[id].clone()).collect()
 }
 
 #[derive(Clone, Copy)]
@@ -2711,8 +3194,13 @@ fn unique_candidate(parent: &Path, stem: &str, extension: &str) -> Result<PathBu
     ))
 }
 
-fn write_sidecar(parent: &Path, output: &Path, contents: &str) -> Result<PathBuf, RenderError> {
-    write_sidecar_with(parent, output, contents, |file, text| {
+fn write_sidecar(
+    parent: &Path,
+    output: &Path,
+    contents: &str,
+    extension: &str,
+) -> Result<PathBuf, RenderError> {
+    write_sidecar_with(parent, output, contents, extension, |file, text| {
         file.write_all(text.as_bytes())
     })
 }
@@ -2721,6 +3209,7 @@ fn write_sidecar_with<F>(
     parent: &Path,
     output: &Path,
     contents: &str,
+    extension: &str,
     mut write_contents: F,
 ) -> Result<PathBuf, RenderError>
 where
@@ -2733,7 +3222,7 @@ where
     for _ in 0..100 {
         let serial = TEMP_SEQUENCE.fetch_add(1, Ordering::Relaxed);
         let path = parent.join(format!(
-            ".{stem}.storycut-{}-{serial}.srt",
+            ".{stem}.storycut-{}-{serial}.{extension}",
             std::process::id()
         ));
         match OpenOptions::new().write(true).create_new(true).open(&path) {
@@ -3281,13 +3770,19 @@ mod tests {
         let directory = tempfile::tempdir().unwrap();
         let output = directory.path().join("render.mp4");
 
-        let error = write_sidecar_with(directory.path(), &output, "full subtitle", |file, _| {
-            file.write_all(b"partial subtitle")?;
-            Err(std::io::Error::new(
-                std::io::ErrorKind::WriteZero,
-                "simulated write failure",
-            ))
-        })
+        let error = write_sidecar_with(
+            directory.path(),
+            &output,
+            "full subtitle",
+            "srt",
+            |file, _| {
+                file.write_all(b"partial subtitle")?;
+                Err(std::io::Error::new(
+                    std::io::ErrorKind::WriteZero,
+                    "simulated write failure",
+                ))
+            },
+        )
         .unwrap_err();
 
         assert_eq!(error.code(), "IO_ERROR");

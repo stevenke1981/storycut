@@ -23,7 +23,7 @@ class ContractTests(unittest.TestCase):
 
     def test_package_schemas_and_examples(self):
         report = validate_package()
-        self.assertEqual(report['tool_contracts'], 35)
+        self.assertEqual(report['tool_contracts'], 36)
         self.assertEqual(report['atomic_operation_types'], 19)
 
     def test_multitrack_28_seconds(self):
