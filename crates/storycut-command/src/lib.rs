@@ -10,7 +10,11 @@ use std::fs::OpenOptions;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use storycut_core::{Asset, Canvas, Operation, ProjectStore, SubtitleFormat};
+use storycut_core::{
+    Anchor, Asset, AssetKind, Canvas, Clip, FitMode, Interpolation, Keyframe, Link, MAX_TICKS,
+    Motion, Operation, Project, ProjectStore, StreamKind, SubtitleFormat, TIMEBASE, Track,
+    TrackKind, Transition, TransitionKind, VideoAudioPolicy,
+};
 use uuid::Uuid;
 
 #[derive(Debug)]
@@ -50,6 +54,8 @@ pub fn supported_tools() -> Vec<String> {
         "storycut_media_list",
         "storycut_timeline_get",
         "storycut_timeline_apply",
+        "storycut_storyboard_assemble",
+        "storycut_focal_motion_apply",
         "storycut_track_add",
         "storycut_track_update",
         "storycut_clip_add",
@@ -109,6 +115,8 @@ pub fn dispatch(workspace: &Path, tool: &str, args: Value) -> Result<Value, Comm
         return dispatch(workspace, "storycut_timeline_apply", apply);
     }
     match tool {
+        "storycut_storyboard_assemble" => storyboard_assemble(workspace, &args),
+        "storycut_focal_motion_apply" => focal_motion_apply(workspace, &args),
         "storycut_capabilities" => {
             require_object_keys(&args, &[])?;
             let ffmpeg_available = command_available("ffmpeg", "-version");
@@ -1141,6 +1149,1298 @@ pub fn dispatch(workspace: &Path, tool: &str, args: Value) -> Result<Value, Comm
     }
 }
 
+fn semantic_identity(args: &Value) -> Value {
+    let mut identity = args.as_object().cloned().unwrap_or_default();
+    for field in [
+        "project_id",
+        "expected_revision",
+        "idempotency_key",
+        "dry_run",
+    ] {
+        identity.remove(field);
+    }
+    Value::Object(identity)
+}
+
+fn storyboard_assemble(workspace: &Path, args: &Value) -> Result<Value, CommandError> {
+    require_object_keys(
+        args,
+        &[
+            "project_id",
+            "expected_revision",
+            "idempotency_key",
+            "dry_run",
+            "items",
+            "visual_track_id",
+            "transition",
+            "original_video_audio",
+            "audio_tracks",
+        ],
+    )?;
+    let project_id = field_str(args, "project_id")?;
+    let expected_revision = field_u64(args, "expected_revision")?;
+    let idempotency_key = field_str(args, "idempotency_key")?;
+    let dry_run = field_bool(args, "dry_run")?;
+    let store = ProjectStore::load(workspace, project_id).map_err(core_error)?;
+    let identity = semantic_identity(args);
+    let planned = store
+        .apply_planned(
+            expected_revision,
+            idempotency_key,
+            dry_run,
+            "storycut_storyboard_assemble",
+            identity,
+            |project| plan_storyboard(workspace, project, args, idempotency_key),
+        )
+        .map_err(core_error)?;
+    let mut data = planned.data.as_object().cloned().unwrap_or_default();
+    data.insert("committed".into(), json!(planned.result.applied));
+    data.insert("base_revision".into(), json!(planned.result.base_revision));
+    data.insert("changed_ids".into(), json!(planned.result.changed_ids));
+    data.insert("removed_ids".into(), json!(planned.result.removed_ids));
+    data.insert(
+        "duration_ticks".into(),
+        json!(planned.result.duration_ticks),
+    );
+    data.insert(
+        "diff".into(),
+        json!(
+            planned
+                .result
+                .changed_ids
+                .iter()
+                .map(|id| format!("changed:{id}"))
+                .chain(
+                    planned
+                        .result
+                        .removed_ids
+                        .iter()
+                        .map(|id| format!("removed:{id}"))
+                )
+                .collect::<Vec<_>>()
+        ),
+    );
+    Ok(with_projection_warning(
+        success(
+            Some(project_id),
+            Some(planned.result.revision),
+            Value::Object(data),
+        ),
+        planned.result.projection_warning.as_deref(),
+    ))
+}
+
+fn focal_motion_apply(workspace: &Path, args: &Value) -> Result<Value, CommandError> {
+    require_object_keys(
+        args,
+        &[
+            "project_id",
+            "expected_revision",
+            "idempotency_key",
+            "dry_run",
+            "targets",
+            "preset",
+            "from_scale",
+            "to_scale",
+            "pan_amount",
+        ],
+    )?;
+    let project_id = field_str(args, "project_id")?;
+    let expected_revision = field_u64(args, "expected_revision")?;
+    let idempotency_key = field_str(args, "idempotency_key")?;
+    let dry_run = field_bool(args, "dry_run")?;
+    let store = ProjectStore::load(workspace, project_id).map_err(core_error)?;
+    let identity = semantic_identity(args);
+    let planned = store
+        .apply_planned(
+            expected_revision,
+            idempotency_key,
+            dry_run,
+            "storycut_focal_motion_apply",
+            identity,
+            |project| plan_focal_motion(workspace, project, args),
+        )
+        .map_err(core_error)?;
+    let mut data = planned.data.as_object().cloned().unwrap_or_default();
+    data.insert("committed".into(), json!(planned.result.applied));
+    data.insert("base_revision".into(), json!(planned.result.base_revision));
+    data.insert("changed_ids".into(), json!(planned.result.changed_ids));
+    data.insert("removed_ids".into(), json!(planned.result.removed_ids));
+    data.insert(
+        "duration_ticks".into(),
+        json!(planned.result.duration_ticks),
+    );
+    data.insert(
+        "diff".into(),
+        json!(
+            planned
+                .result
+                .changed_ids
+                .iter()
+                .map(|id| format!("changed:{id}"))
+                .collect::<Vec<_>>()
+        ),
+    );
+    Ok(with_projection_warning(
+        success(
+            Some(project_id),
+            Some(planned.result.revision),
+            Value::Object(data),
+        ),
+        planned.result.projection_warning.as_deref(),
+    ))
+}
+
+fn plan_storyboard(
+    _workspace: &Path,
+    project: &Project,
+    args: &Value,
+    idempotency_key: &str,
+) -> Result<(Vec<Operation>, Value), storycut_core::CoreError> {
+    use storycut_core::{AudioClip, AudioSettings, ImageClip, VideoClip};
+    let fail = |message: String| storycut_core::CoreError::validation(message);
+    let items = args
+        .get("items")
+        .and_then(Value::as_array)
+        .filter(|items| !items.is_empty() && items.len() <= 200)
+        .ok_or_else(|| fail("items must contain 1 to 200 assets".into()))?;
+    let frame_ticks = project
+        .frame_ticks()
+        .ok_or_else(|| fail("project frame rate cannot be represented by the timebase".into()))?;
+    let transition = parse_transition_policy(args.get("transition"))?;
+    let (transition_requested_ticks, transition_ticks) = match transition.mode {
+        TransitionMode::CrossDissolve => {
+            let requested = seconds_value_to_ticks(
+                transition.duration_seconds.as_ref().unwrap_or(&json!(1)),
+                "transition.duration_seconds",
+                false,
+            )?;
+            (requested, round_to_grid(requested, frame_ticks)?)
+        }
+        _ => (0, 0),
+    };
+    if transition.mode == TransitionMode::CrossDissolve && transition_ticks == 0 {
+        return Err(fail("cross dissolve duration rounds to zero frames".into()));
+    }
+    let original_video_audio = args
+        .get("original_video_audio")
+        .map(|value| {
+            value
+                .as_str()
+                .ok_or_else(|| fail("original_video_audio must be a string".into()))
+        })
+        .transpose()?
+        .unwrap_or("separate_linked");
+    let original_audio = match original_video_audio {
+        "separate_linked" => true,
+        "muted" => false,
+        _ => {
+            return Err(fail(
+                "original_video_audio must be separate_linked or muted".into(),
+            ));
+        }
+    };
+
+    let mut operations = Vec::new();
+    let mut created_track_ids = Vec::<String>::new();
+    let mut created_clip_ids = Vec::<String>::new();
+    let mut track_roles = Vec::<Value>::new();
+    let mut warnings = Vec::<Value>::new();
+    let visual_track_id = if let Some(track_id) = args.get("visual_track_id") {
+        let track_id = track_id
+            .as_str()
+            .filter(|id| !id.is_empty())
+            .ok_or_else(|| fail("visual_track_id must be a nonempty string".into()))?;
+        let track = project
+            .tracks
+            .iter()
+            .find(|track| track.id == track_id)
+            .ok_or_else(|| fail(format!("visual track {track_id} was not found")))?;
+        if track.kind != TrackKind::Video || track.locked {
+            return Err(fail(format!(
+                "visual track {track_id} must be an unlocked video track"
+            )));
+        }
+        track_id.to_owned()
+    } else {
+        let track_id = generated_id(project, idempotency_key, "story-video-track", 0);
+        operations.push(Operation::TrackAdd {
+            track: make_track(track_id.clone(), "故事畫面", TrackKind::Video),
+        });
+        created_track_ids.push(track_id.clone());
+        track_roles.push(json!({"role":"visual","track_id":track_id,"name":"故事畫面"}));
+        track_id
+    };
+    let mut visual_cursor = project
+        .clips
+        .iter()
+        .filter(|clip| clip.track_id() == visual_track_id)
+        .filter_map(Clip::end_tick)
+        .max()
+        .unwrap_or(0);
+    let assembly_start_tick = visual_cursor;
+    let mut previous_visual: Option<(String, u64, u64)> = None;
+    let mut original_audio_track: Option<String> = None;
+    let mut audio_links = Vec::<Operation>::new();
+
+    for (index, item) in items.iter().enumerate() {
+        require_object_keys(item, &["asset_id", "source_in_seconds", "duration_seconds"])
+            .map_err(command_to_core)?;
+        let asset_id = item
+            .get("asset_id")
+            .and_then(Value::as_str)
+            .filter(|id| !id.is_empty())
+            .ok_or_else(|| fail(format!("items[{index}].asset_id is required")))?;
+        let asset = project
+            .assets
+            .iter()
+            .find(|asset| asset.id == asset_id)
+            .ok_or_else(|| fail(format!("asset {asset_id} was not found")))?;
+        if !matches!(asset.kind, AssetKind::Image | AssetKind::Video) {
+            return Err(fail(format!(
+                "asset {asset_id} is not a visual image or video"
+            )));
+        }
+        let source_in = item
+            .get("source_in_seconds")
+            .map(|value| seconds_value_to_ticks(value, "source_in_seconds", true))
+            .transpose()?
+            .unwrap_or(0);
+        let source_in = if asset.kind == AssetKind::Video {
+            round_to_grid(source_in, frame_ticks)?
+        } else {
+            if source_in != 0 {
+                return Err(fail(format!(
+                    "image asset {asset_id} cannot have a source in point"
+                )));
+            }
+            0
+        };
+        let duration_is_explicit = item.get("duration_seconds").is_some();
+        let duration_raw = if let Some(value) = item.get("duration_seconds") {
+            seconds_value_to_ticks(value, "duration_seconds", false)?
+        } else if asset.kind == AssetKind::Image {
+            10 * TIMEBASE
+        } else {
+            let total = asset.duration_ticks.ok_or_else(|| {
+                fail(format!(
+                    "video asset {asset_id} has no probed natural duration"
+                ))
+            })?;
+            total.checked_sub(source_in).ok_or_else(|| {
+                fail(format!(
+                    "video asset {asset_id} source in exceeds its duration"
+                ))
+            })?
+        };
+        let duration = if asset.kind == AssetKind::Video && !duration_is_explicit {
+            floor_to_grid(duration_raw, frame_ticks)?
+        } else {
+            round_to_grid(duration_raw, frame_ticks)?
+        };
+        if duration == 0 {
+            return Err(fail(format!(
+                "items[{index}] duration rounds to zero frames"
+            )));
+        }
+        if asset.kind == AssetKind::Video {
+            let total = asset.duration_ticks.ok_or_else(|| {
+                fail(format!(
+                    "video asset {asset_id} has no probed natural duration"
+                ))
+            })?;
+            if source_in
+                .checked_add(duration)
+                .is_none_or(|end| end > total)
+            {
+                return Err(fail(format!(
+                    "video asset {asset_id} source range exceeds its duration"
+                )));
+            }
+        }
+        let clip_id = generated_id(project, idempotency_key, "story-visual-clip", index);
+        let motion = default_motion(duration, frame_ticks);
+        let clip = match asset.kind {
+            AssetKind::Image => Clip::Image(ImageClip {
+                id: clip_id.clone(),
+                track_id: visual_track_id.clone(),
+                asset_id: asset_id.to_owned(),
+                start_tick: visual_cursor,
+                duration_ticks: duration,
+                source_in_tick: 0,
+                motion,
+            }),
+            AssetKind::Video => {
+                let video_stream = asset
+                    .streams
+                    .iter()
+                    .find(|stream| stream.kind == StreamKind::Video)
+                    .ok_or_else(|| fail(format!("video asset {asset_id} has no video stream")))?;
+                let video = VideoClip {
+                    id: clip_id.clone(),
+                    track_id: visual_track_id.clone(),
+                    asset_id: asset_id.to_owned(),
+                    start_tick: visual_cursor,
+                    duration_ticks: duration,
+                    source_in_tick: source_in,
+                    stream_index: video_stream.index,
+                    motion,
+                    audio_policy: VideoAudioPolicy::Muted,
+                };
+                if original_audio
+                    && asset
+                        .streams
+                        .iter()
+                        .any(|stream| stream.kind == StreamKind::Audio)
+                {
+                    let audio_stream = asset
+                        .streams
+                        .iter()
+                        .find(|stream| stream.kind == StreamKind::Audio)
+                        .expect("audio stream existence checked");
+                    let track_id = original_audio_track.get_or_insert_with(|| {
+                        let id =
+                            generated_id(project, idempotency_key, "story-original-audio-track", 0);
+                        operations.push(Operation::TrackAdd {
+                            track: make_track(id.clone(), "原始影片聲音", TrackKind::Audio),
+                        });
+                        created_track_ids.push(id.clone());
+                        track_roles.push(
+                            json!({"role":"original_audio","track_id":id,"name":"原始影片聲音"}),
+                        );
+                        id
+                    });
+                    let audio_id =
+                        generated_id(project, idempotency_key, "story-original-audio-clip", index);
+                    let audio = AudioClip {
+                        id: audio_id.clone(),
+                        track_id: track_id.clone(),
+                        asset_id: asset_id.to_owned(),
+                        start_tick: visual_cursor,
+                        duration_ticks: duration,
+                        source_in_tick: source_in,
+                        stream_index: audio_stream.index,
+                        audio: AudioSettings {
+                            domain_duration_ticks: duration,
+                            sample_offset_tick: 0,
+                            gain_db: 0.0,
+                            pan: 0.0,
+                            muted: false,
+                            fade_in_ticks: 0,
+                            fade_out_ticks: 0,
+                            fade_curve: "linear_amplitude".into(),
+                        },
+                    };
+                    operations.push(Operation::ClipAdd {
+                        clip: Clip::Video(video.clone()),
+                    });
+                    operations.push(Operation::ClipAdd {
+                        clip: Clip::Audio(audio),
+                    });
+                    created_clip_ids.push(audio_id.clone());
+                    audio_links.push(Operation::LinkCreate {
+                        link: Link {
+                            id: generated_id(
+                                project,
+                                idempotency_key,
+                                "story-original-audio-link",
+                                index,
+                            ),
+                            kind: "av_sync".into(),
+                            clip_ids: [video.id.clone(), audio_id],
+                        },
+                    });
+                } else {
+                    operations.push(Operation::ClipAdd {
+                        clip: Clip::Video(video),
+                    });
+                }
+                // This placeholder is replaced below only to share the common clip ID flow.
+                Clip::Video(VideoClip {
+                    id: clip_id.clone(),
+                    track_id: visual_track_id.clone(),
+                    asset_id: asset_id.to_owned(),
+                    start_tick: visual_cursor,
+                    duration_ticks: duration,
+                    source_in_tick: source_in,
+                    stream_index: video_stream.index,
+                    motion: default_motion(duration, frame_ticks),
+                    audio_policy: VideoAudioPolicy::Muted,
+                })
+            }
+            AssetKind::Audio => unreachable!("visual kinds checked above"),
+        };
+        if asset.kind == AssetKind::Image {
+            operations.push(Operation::ClipAdd { clip: clip.clone() });
+        }
+        created_clip_ids.push(clip_id.clone());
+        if let Some((from_id, from_start, from_end)) = previous_visual {
+            if transition.mode == TransitionMode::CrossDissolve {
+                let prev_duration = from_end.saturating_sub(from_start);
+                if transition_ticks > prev_duration || transition_ticks > duration {
+                    return Err(fail(format!(
+                        "cross dissolve between {from_id} and {clip_id} exceeds a clip duration"
+                    )));
+                }
+                operations.push(Operation::TransitionSet {
+                    transition: Transition {
+                        id: generated_id(project, idempotency_key, "story-transition", index - 1),
+                        track_id: visual_track_id.clone(),
+                        from_clip_id: from_id,
+                        to_clip_id: clip_id.clone(),
+                        start_tick: visual_cursor,
+                        duration_ticks: transition_ticks,
+                        kind: TransitionKind::CrossDissolve,
+                        curve: "linear".into(),
+                        audio_policy: "independent".into(),
+                    },
+                });
+            }
+        }
+        let visual_end = visual_cursor
+            .checked_add(duration)
+            .filter(|end| *end <= MAX_TICKS)
+            .ok_or_else(|| fail("storyboard timeline range overflows".into()))?;
+        previous_visual = Some((clip_id, visual_cursor, visual_end));
+        visual_cursor = if transition.mode == TransitionMode::CrossDissolve {
+            visual_end
+                .checked_sub(transition_ticks)
+                .ok_or_else(|| fail("storyboard overlap exceeds the clip duration".into()))?
+        } else {
+            visual_end
+        };
+    }
+    // The final clip ends at the current cursor plus the last overlap.
+    let visual_end_tick = previous_visual
+        .map(|(_, _, end)| end)
+        .unwrap_or(visual_cursor);
+
+    let audio_tracks = match args.get("audio_tracks") {
+        None => Vec::new(),
+        Some(value) => value
+            .as_array()
+            .cloned()
+            .ok_or_else(|| fail("audio_tracks must be an array".into()))?,
+    };
+    if audio_tracks.len() > 32 {
+        return Err(fail("audio_tracks may contain at most 32 lanes".into()));
+    }
+    let mut audio_end_tick = 0_u64;
+    for (lane_index, lane) in audio_tracks.iter().enumerate() {
+        require_object_keys(lane, &["role", "track_id", "track_name", "clips"])
+            .map_err(command_to_core)?;
+        let role = lane
+            .get("role")
+            .and_then(Value::as_str)
+            .filter(|role| matches!(*role, "narration" | "dialogue" | "music"))
+            .ok_or_else(|| fail(format!("audio_tracks[{lane_index}].role is invalid")))?;
+        let default_name = match role {
+            "narration" => "旁白",
+            "dialogue" => "角色對白",
+            "music" => "配樂",
+            _ => unreachable!(),
+        };
+        let name = match lane.get("track_name") {
+            None => default_name,
+            Some(value) => value
+                .as_str()
+                .filter(|name| !name.trim().is_empty())
+                .ok_or_else(|| {
+                    fail(format!(
+                        "audio_tracks[{lane_index}].track_name must be a nonempty string"
+                    ))
+                })?,
+        };
+        let lane_track_id = if let Some(track_id) = lane.get("track_id") {
+            let track_id = track_id
+                .as_str()
+                .filter(|id| !id.is_empty())
+                .ok_or_else(|| fail(format!("audio_tracks[{lane_index}].track_id is invalid")))?;
+            let track = project
+                .tracks
+                .iter()
+                .find(|track| track.id == track_id)
+                .ok_or_else(|| fail(format!("audio track {track_id} was not found")))?;
+            if track.kind != TrackKind::Audio || track.locked {
+                return Err(fail(format!(
+                    "audio track {track_id} must be unlocked and kind audio"
+                )));
+            }
+            if lane.get("track_name").is_some() && name != track.name {
+                operations.push(Operation::TrackUpdate {
+                    track_id: track_id.to_owned(),
+                    changes: storycut_core::TrackChanges {
+                        name: Some(name.to_owned()),
+                        ..Default::default()
+                    },
+                });
+            }
+            track_id.to_owned()
+        } else {
+            let id = generated_id(project, idempotency_key, "story-role-track", lane_index);
+            operations.push(Operation::TrackAdd {
+                track: make_track(id.clone(), name, TrackKind::Audio),
+            });
+            created_track_ids.push(id.clone());
+            track_roles.push(json!({"role":role,"track_id":id,"name":name}));
+            id
+        };
+        let clips = lane
+            .get("clips")
+            .and_then(Value::as_array)
+            .filter(|clips| !clips.is_empty() && clips.len() <= 200)
+            .ok_or_else(|| {
+                fail(format!(
+                    "audio_tracks[{lane_index}].clips must contain 1 to 200 items"
+                ))
+            })?;
+        for (clip_index, audio_item) in clips.iter().enumerate() {
+            require_object_keys(
+                audio_item,
+                &[
+                    "asset_id",
+                    "start_seconds",
+                    "source_in_seconds",
+                    "duration_seconds",
+                    "gain_db",
+                    "fade_in_seconds",
+                    "fade_out_seconds",
+                    "loop_to_visual_end",
+                ],
+            )
+            .map_err(command_to_core)?;
+            let asset_id = audio_item
+                .get("asset_id")
+                .and_then(Value::as_str)
+                .filter(|id| !id.is_empty())
+                .ok_or_else(|| {
+                    fail(format!(
+                        "audio clip {lane_index}:{clip_index} needs asset_id"
+                    ))
+                })?;
+            let asset = project
+                .assets
+                .iter()
+                .find(|asset| asset.id == asset_id)
+                .ok_or_else(|| fail(format!("audio asset {asset_id} was not found")))?;
+            if asset.kind == AssetKind::Image {
+                return Err(fail(format!("asset {asset_id} is not an audio source")));
+            }
+            let audio_stream = asset
+                .streams
+                .iter()
+                .find(|stream| stream.kind == StreamKind::Audio)
+                .ok_or_else(|| fail(format!("asset {asset_id} has no audio stream")))?;
+            let start_ticks_raw = seconds_value_to_ticks(
+                audio_item
+                    .get("start_seconds")
+                    .ok_or_else(|| fail("audio clip needs start_seconds".into()))?,
+                "start_seconds",
+                true,
+            )?;
+            let sample_ticks = TIMEBASE / u64::from(project.audio_sample_rate);
+            if sample_ticks == 0 || TIMEBASE % u64::from(project.audio_sample_rate) != 0 {
+                return Err(fail(
+                    "project audio sample rate is not representable by timebase".into(),
+                ));
+            }
+            let start_ticks = round_to_grid(start_ticks_raw, sample_ticks)?;
+            let source_in = audio_item
+                .get("source_in_seconds")
+                .map(|value| seconds_value_to_ticks(value, "source_in_seconds", true))
+                .transpose()?
+                .unwrap_or(0);
+            let source_total = asset
+                .duration_ticks
+                .ok_or_else(|| fail(format!("audio asset {asset_id} has no probed duration")))?;
+            if source_in >= source_total {
+                return Err(fail(format!(
+                    "audio asset {asset_id} source in is past its duration"
+                )));
+            }
+            let default_source_duration = source_total - source_in;
+            let source_duration_raw = if let Some(value) = audio_item.get("duration_seconds") {
+                seconds_value_to_ticks(value, "duration_seconds", false)?
+            } else {
+                default_source_duration
+            };
+            let source_duration = round_to_grid(source_duration_raw, sample_ticks)?;
+            if source_duration == 0
+                || source_in
+                    .checked_add(source_duration)
+                    .is_none_or(|end| end > source_total)
+            {
+                return Err(fail(format!(
+                    "audio asset {asset_id} source range exceeds its duration"
+                )));
+            }
+            let loop_to_end = audio_item
+                .get("loop_to_visual_end")
+                .map(|value| {
+                    value
+                        .as_bool()
+                        .ok_or_else(|| fail("loop_to_visual_end must be a boolean".into()))
+                })
+                .transpose()?
+                .unwrap_or(false);
+            if loop_to_end && role != "music" {
+                return Err(fail(
+                    "loop_to_visual_end is supported only for music".into(),
+                ));
+            }
+            let gain_db = finite_number(audio_item.get("gain_db"), 0.0, "gain_db")?;
+            if !gain_db.is_finite() || !(-96.0..=24.0).contains(&gain_db) {
+                return Err(fail("gain_db must be within -96..=24".into()));
+            }
+            let fade_in_ticks = audio_item
+                .get("fade_in_seconds")
+                .map(|value| seconds_value_to_ticks(value, "fade_in_seconds", true))
+                .transpose()?
+                .map(|ticks| round_to_grid(ticks, sample_ticks))
+                .transpose()?
+                .unwrap_or(0);
+            let fade_out_ticks = audio_item
+                .get("fade_out_seconds")
+                .map(|value| seconds_value_to_ticks(value, "fade_out_seconds", true))
+                .transpose()?
+                .map(|ticks| round_to_grid(ticks, sample_ticks))
+                .transpose()?
+                .unwrap_or(0);
+            let mut timeline_cursor = start_ticks;
+            let mut loop_parts = Vec::<(u64, u64)>::new();
+            if loop_to_end {
+                if timeline_cursor >= visual_end_tick {
+                    return Err(fail(
+                        "looping music must start before the storyboard visual end".into(),
+                    ));
+                }
+                while timeline_cursor < visual_end_tick {
+                    if loop_parts.len() >= 500 {
+                        return Err(fail(
+                            "music loop would exceed the 500-operation transaction limit".into(),
+                        ));
+                    }
+                    let left = visual_end_tick - timeline_cursor;
+                    let duration = if left <= source_duration {
+                        // Keep the loop inside the storyboard end when the final
+                        // video-frame boundary falls between audio samples.
+                        floor_to_grid(left, sample_ticks)?
+                    } else {
+                        source_duration
+                    };
+                    if duration == 0 {
+                        break;
+                    }
+                    loop_parts.push((timeline_cursor, duration));
+                    timeline_cursor = timeline_cursor
+                        .checked_add(duration)
+                        .ok_or_else(|| fail("audio timeline range overflows".into()))?;
+                }
+            } else {
+                loop_parts.push((timeline_cursor, source_duration));
+            }
+            for (part_index, (part_start, part_duration)) in loop_parts.iter().copied().enumerate()
+            {
+                let first = part_index == 0;
+                let last = part_index + 1 == loop_parts.len();
+                let part_fade_in = if first { fade_in_ticks } else { 0 };
+                let part_fade_out = if last { fade_out_ticks } else { 0 };
+                if part_fade_in.saturating_add(part_fade_out) > part_duration {
+                    return Err(fail(format!(
+                        "audio fades exceed the edge loop segment at lane {lane_index}, clip {clip_index}"
+                    )));
+                }
+                // Each lane owns a disjoint 100,000-index block. Up to 200
+                // clips × 500 loop parts fills at most 100,000 indices.
+                let generated_index = lane_index * 100_000 + clip_index * 500 + part_index;
+                let clip_id = generated_id(
+                    project,
+                    idempotency_key,
+                    "story-role-audio-clip",
+                    generated_index,
+                );
+                let clip = AudioClip {
+                    id: clip_id.clone(),
+                    track_id: lane_track_id.clone(),
+                    asset_id: asset_id.to_owned(),
+                    start_tick: part_start,
+                    duration_ticks: part_duration,
+                    source_in_tick: source_in,
+                    stream_index: audio_stream.index,
+                    audio: AudioSettings {
+                        domain_duration_ticks: part_duration,
+                        sample_offset_tick: 0,
+                        gain_db,
+                        pan: 0.0,
+                        muted: false,
+                        fade_in_ticks: part_fade_in,
+                        fade_out_ticks: part_fade_out,
+                        fade_curve: "linear_amplitude".into(),
+                    },
+                };
+                operations.push(Operation::ClipAdd {
+                    clip: Clip::Audio(clip),
+                });
+                created_clip_ids.push(clip_id);
+                audio_end_tick = audio_end_tick.max(part_start.saturating_add(part_duration));
+            }
+        }
+    }
+    operations.extend(audio_links);
+    if operations.is_empty() {
+        return Err(fail("storyboard plan contains no operations".into()));
+    }
+    if operations.len() > 500 {
+        return Err(fail(format!(
+            "storyboard expands to {} operations; the transaction limit is 500",
+            operations.len()
+        )));
+    }
+    let visual_duration_ticks = visual_end_tick.saturating_sub(assembly_start_tick);
+    let audio_duration_ticks = audio_end_tick.saturating_sub(assembly_start_tick);
+    if transition_ticks > 0 && transition_requested_ticks != transition_ticks {
+        warnings.push(json!({
+            "code":"TRANSITION_ROUNDED_TO_FRAME",
+            "requested_duration_ticks":transition_requested_ticks,
+            "duration_ticks":transition_ticks
+        }));
+    }
+    let response_data = json!({
+        "created_track_ids":created_track_ids,
+        "created_clip_ids":created_clip_ids,
+        "visual_track_id":visual_track_id,
+        "start_tick":assembly_start_tick,
+        "visual_duration_ticks":visual_duration_ticks,
+        "audio_duration_ticks":audio_duration_ticks,
+        "track_roles":track_roles,
+        "transition":{"kind":if transition.mode == TransitionMode::CrossDissolve {"cross_dissolve"} else {"cut"},"duration_ticks":transition_ticks},
+        "warnings":warnings,
+    });
+    Ok((operations, response_data))
+}
+
+#[derive(Clone)]
+struct TransitionPolicy {
+    mode: TransitionMode,
+    duration_seconds: Option<Value>,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum TransitionMode {
+    Cut,
+    CrossDissolve,
+}
+
+fn parse_transition_policy(
+    value: Option<&Value>,
+) -> Result<TransitionPolicy, storycut_core::CoreError> {
+    let Some(value) = value else {
+        return Ok(TransitionPolicy {
+            mode: TransitionMode::Cut,
+            duration_seconds: None,
+        });
+    };
+    require_object_keys(value, &["kind", "duration_seconds"]).map_err(command_to_core)?;
+    let kind_value = value
+        .get("kind")
+        .map(|value| {
+            value.as_str().ok_or_else(|| {
+                storycut_core::CoreError::validation("transition.kind must be a string")
+            })
+        })
+        .transpose()?
+        .unwrap_or("cut");
+    let kind = match kind_value {
+        "cut" => TransitionMode::Cut,
+        "cross_dissolve" => TransitionMode::CrossDissolve,
+        other => {
+            return Err(storycut_core::CoreError::validation(format!(
+                "unsupported transition kind {other}"
+            )));
+        }
+    };
+    let duration_seconds = if kind == TransitionMode::CrossDissolve {
+        Some(
+            value
+                .get("duration_seconds")
+                .cloned()
+                .unwrap_or_else(|| json!(1)),
+        )
+    } else {
+        if value.get("duration_seconds").is_some() {
+            return Err(storycut_core::CoreError::validation(
+                "transition.duration_seconds is only valid for cross_dissolve",
+            ));
+        }
+        None
+    };
+    Ok(TransitionPolicy {
+        mode: kind,
+        duration_seconds,
+    })
+}
+
+fn plan_focal_motion(
+    workspace: &Path,
+    project: &Project,
+    args: &Value,
+) -> Result<(Vec<Operation>, Value), storycut_core::CoreError> {
+    let fail = |message: String| storycut_core::CoreError::validation(message);
+    let targets = args
+        .get("targets")
+        .and_then(Value::as_array)
+        .filter(|targets| !targets.is_empty() && targets.len() <= 200)
+        .ok_or_else(|| fail("targets must contain 1 to 200 clips".into()))?;
+    let preset = args
+        .get("preset")
+        .map(|value| {
+            value
+                .as_str()
+                .ok_or_else(|| fail("preset must be a string".into()))
+        })
+        .transpose()?
+        .unwrap_or("focus_zoom");
+    let (default_from, default_to) = match preset {
+        "focus_zoom" | "zoom_in" => (1.0, 1.18),
+        "zoom_out" => (1.18, 1.0),
+        "static" => (1.0, 1.0),
+        "pan_left" | "pan_right" | "pan_up" | "pan_down" => (1.1, 1.1),
+        _ => return Err(fail(format!("unsupported focal motion preset {preset}"))),
+    };
+    let from_scale = finite_number(args.get("from_scale"), default_from, "from_scale")?;
+    let to_scale = finite_number(args.get("to_scale"), default_to, "to_scale")?;
+    if !(1.0..=16.0).contains(&from_scale) || !(1.0..=16.0).contains(&to_scale) {
+        return Err(fail("from_scale and to_scale must be within 1..=16".into()));
+    }
+    let pan_amount = finite_number(args.get("pan_amount"), 0.03, "pan_amount")?;
+    if !(0.0..=0.5).contains(&pan_amount) {
+        return Err(fail("pan_amount must be within 0..=0.5".into()));
+    }
+    let mut operations = Vec::with_capacity(targets.len());
+    let mut warnings = Vec::<Value>::new();
+    let mut changed_clip_ids = Vec::<String>::new();
+    let mut seen = std::collections::HashSet::<String>::new();
+    let frame_ticks = project
+        .frame_ticks()
+        .ok_or_else(|| fail("project frame rate cannot be represented by the timebase".into()))?;
+    for (index, target) in targets.iter().enumerate() {
+        require_object_keys(target, &["clip_id", "focus"]).map_err(command_to_core)?;
+        let clip_id = target
+            .get("clip_id")
+            .and_then(Value::as_str)
+            .filter(|id| !id.is_empty())
+            .ok_or_else(|| fail(format!("targets[{index}].clip_id is required")))?;
+        if !seen.insert(clip_id.to_owned()) {
+            return Err(fail(format!("clip {clip_id} appears more than once")));
+        }
+        let clip = project
+            .clips
+            .iter()
+            .find(|clip| clip.id() == clip_id)
+            .ok_or_else(|| fail(format!("clip {clip_id} was not found")))?;
+        if !clip.is_visual() {
+            return Err(fail(format!("clip {clip_id} is not a visual clip")));
+        }
+        let asset = project
+            .assets
+            .iter()
+            .find(|asset| asset.id == clip.asset_id())
+            .ok_or_else(|| fail(format!("asset for clip {clip_id} was not found")))?;
+        let media_path = checked_path(workspace, &asset.path, true).map_err(command_to_core)?;
+        let probe = storycut_render::probe_media(&media_path)
+            .map_err(render_error)
+            .map_err(command_to_core)?;
+        if asset
+            .sha256
+            .as_deref()
+            .is_none_or(|hash| !hash.eq_ignore_ascii_case(&probe.sha256))
+        {
+            return Err(storycut_core::CoreError::new(
+                storycut_core::CoreErrorCode::MediaChanged,
+                format!("asset {} changed after it was imported", asset.id),
+            ));
+        }
+        let source_width = probe.width.filter(|width| *width > 0).ok_or_else(|| {
+            storycut_core::CoreError::new(
+                storycut_core::CoreErrorCode::UnsupportedFeature,
+                format!("asset {} has no usable video width", asset.id),
+            )
+        })?;
+        let source_height = probe.height.filter(|height| *height > 0).ok_or_else(|| {
+            storycut_core::CoreError::new(
+                storycut_core::CoreErrorCode::UnsupportedFeature,
+                format!("asset {} has no usable video height", asset.id),
+            )
+        })?;
+        let focus = if let Some(focus) = target.get("focus") {
+            require_object_keys(focus, &["x", "y"]).map_err(command_to_core)?;
+            let x = finite_number(focus.get("x"), f64::NAN, "focus.x")?;
+            let y = finite_number(focus.get("y"), f64::NAN, "focus.y")?;
+            if !(0.0..=1.0).contains(&x) || !(0.0..=1.0).contains(&y) {
+                return Err(fail(format!(
+                    "focus for clip {clip_id} must be normalized within 0..=1"
+                )));
+            }
+            Anchor { x, y }
+        } else {
+            Anchor { x: 0.5, y: 0.5 }
+        };
+        let canvas = &project.canvas;
+        let pan_start = pan_vector(preset, pan_amount, true);
+        let pan_end = pan_vector(preset, pan_amount, false);
+        let (first_x, first_y, first_clamped) = focal_position(
+            canvas.width,
+            canvas.height,
+            source_width,
+            source_height,
+            from_scale,
+            &focus,
+            pan_start.0,
+            pan_start.1,
+        );
+        let (last_x, last_y, last_clamped) = focal_position(
+            canvas.width,
+            canvas.height,
+            source_width,
+            source_height,
+            to_scale,
+            &focus,
+            pan_end.0,
+            pan_end.1,
+        );
+        if let Some((actual_x, actual_y)) = first_clamped {
+            warnings.push(json!({
+                "code":if preset.starts_with("pan_") {"PAN_CLAMPED"} else {"FOCUS_CLAMPED"},
+                "message":"取景已限制在圖片邊界內，以避免露出空白。",
+                "clip_id":clip_id,
+                "keyframe":"start",
+                "requested_focus":{"x":focus.x,"y":focus.y},
+                "actual_focus":{"x":actual_x,"y":actual_y}
+            }));
+        }
+        if let Some((actual_x, actual_y)) = last_clamped {
+            warnings.push(json!({
+                "code":if preset.starts_with("pan_") {"PAN_CLAMPED"} else {"FOCUS_CLAMPED"},
+                "message":"取景已限制在圖片邊界內，以避免露出空白。",
+                "clip_id":clip_id,
+                "keyframe":"end",
+                "requested_focus":{"x":focus.x,"y":focus.y},
+                "actual_focus":{"x":actual_x,"y":actual_y}
+            }));
+        }
+        let visible_duration = clip.duration_ticks();
+        if visible_duration == 0 || visible_duration % frame_ticks != 0 {
+            return Err(fail(format!(
+                "clip {clip_id} duration is not frame aligned"
+            )));
+        }
+        let end_key_tick = visible_duration - frame_ticks;
+        let first = Keyframe {
+            tick: 0,
+            x: first_x,
+            y: first_y,
+            scale: from_scale,
+            opacity: 1.0,
+        };
+        let keyframes = if visible_duration == frame_ticks {
+            vec![first]
+        } else {
+            vec![
+                first,
+                Keyframe {
+                    tick: end_key_tick,
+                    x: last_x,
+                    y: last_y,
+                    scale: to_scale,
+                    opacity: 1.0,
+                },
+            ]
+        };
+        let motion = Motion {
+            domain_duration_ticks: visible_duration,
+            sample_offset_tick: 0,
+            fit: FitMode::Cover,
+            avoid_exposed_edges: true,
+            anchor: Anchor { x: 0.5, y: 0.5 },
+            interpolation: Interpolation::Smoothstep,
+            keyframes,
+        };
+        operations.push(Operation::MotionSet {
+            clip_id: clip_id.to_owned(),
+            motion,
+        });
+        changed_clip_ids.push(clip_id.to_owned());
+    }
+    let data = json!({
+        "changed_clip_ids":changed_clip_ids,
+        "preset":preset,
+        "from_scale":from_scale,
+        "to_scale":to_scale,
+        "pan_amount":pan_amount,
+        "warnings":warnings,
+    });
+    Ok((operations, data))
+}
+
+fn make_track(id: String, name: &str, kind: TrackKind) -> Track {
+    Track {
+        id,
+        name: name.to_owned(),
+        kind,
+        locked: false,
+        enabled: true,
+        muted: false,
+        solo: false,
+        gain_db: 0.0,
+    }
+}
+
+fn generated_id(project: &Project, key: &str, purpose: &str, index: usize) -> String {
+    let mut hash = Sha256::new();
+    hash.update(project.project_id.as_bytes());
+    hash.update(b"\0");
+    hash.update(key.as_bytes());
+    hash.update(b"\0");
+    hash.update(purpose.as_bytes());
+    hash.update(b"\0");
+    hash.update(index.to_le_bytes());
+    format!(
+        "sc-{}-{}",
+        &purpose.replace("story-", ""),
+        &format!("{:x}", hash.finalize())[..20]
+    )
+}
+
+fn default_motion(duration_ticks: u64, frame_ticks: u64) -> Motion {
+    let end = duration_ticks.saturating_sub(frame_ticks);
+    let keyframes = if duration_ticks == frame_ticks {
+        vec![Keyframe {
+            tick: 0,
+            x: 0.0,
+            y: 0.0,
+            scale: 1.0,
+            opacity: 1.0,
+        }]
+    } else {
+        vec![
+            Keyframe {
+                tick: 0,
+                x: 0.0,
+                y: 0.0,
+                scale: 1.0,
+                opacity: 1.0,
+            },
+            Keyframe {
+                tick: end,
+                x: 0.0,
+                y: 0.0,
+                scale: 1.0,
+                opacity: 1.0,
+            },
+        ]
+    };
+    Motion {
+        domain_duration_ticks: duration_ticks,
+        sample_offset_tick: 0,
+        fit: FitMode::Cover,
+        avoid_exposed_edges: true,
+        anchor: Anchor { x: 0.5, y: 0.5 },
+        interpolation: Interpolation::Smoothstep,
+        keyframes,
+    }
+}
+
+fn seconds_value_to_ticks(
+    value: &Value,
+    field: &str,
+    allow_zero: bool,
+) -> Result<u64, storycut_core::CoreError> {
+    let number = value
+        .as_number()
+        .ok_or_else(|| storycut_core::CoreError::validation(format!("{field} must be a number")))?;
+    let raw = number.to_string();
+    let invalid = || {
+        storycut_core::CoreError::validation(format!(
+            "{field} must be a finite nonnegative decimal"
+        ))
+    };
+    let (mantissa, exponent) = match raw.find(['e', 'E']) {
+        Some(index) => (
+            &raw[..index],
+            raw[index + 1..].parse::<i32>().map_err(|_| invalid())?,
+        ),
+        None => (raw.as_str(), 0),
+    };
+    if mantissa.starts_with('-') {
+        return Err(invalid());
+    }
+    let mantissa = mantissa.strip_prefix('+').unwrap_or(mantissa);
+    let mut digits = String::with_capacity(mantissa.len());
+    let mut fraction_len: i32 = 0;
+    let mut after_point = false;
+    for ch in mantissa.chars() {
+        match ch {
+            '0'..='9' => {
+                digits.push(ch);
+                if after_point {
+                    fraction_len += 1;
+                }
+            }
+            '.' if !after_point => after_point = true,
+            _ => return Err(invalid()),
+        }
+    }
+    if digits.is_empty() {
+        return Err(invalid());
+    }
+    let digits = digits.parse::<u128>().map_err(|_| invalid())?;
+    let scale = fraction_len - exponent;
+    let numerator = digits
+        .checked_mul(u128::from(TIMEBASE))
+        .ok_or_else(invalid)?;
+    let ticks = if scale <= 0 {
+        let multiplier =
+            pow10(u32::try_from(-scale).map_err(|_| invalid())?).ok_or_else(invalid)?;
+        numerator.checked_mul(multiplier).ok_or_else(invalid)?
+    } else {
+        let divisor = pow10(u32::try_from(scale).map_err(|_| invalid())?).ok_or_else(invalid)?;
+        round_ratio_ties_even(numerator, divisor).ok_or_else(invalid)?
+    };
+    let ticks = u64::try_from(ticks).map_err(|_| invalid())?;
+    if ticks > MAX_TICKS || (!allow_zero && ticks == 0) {
+        return Err(invalid());
+    }
+    Ok(ticks)
+}
+
+fn pow10(exponent: u32) -> Option<u128> {
+    (0..exponent).try_fold(1_u128, |value, _| value.checked_mul(10))
+}
+
+fn round_ratio_ties_even(numerator: u128, denominator: u128) -> Option<u128> {
+    if denominator == 0 {
+        return None;
+    }
+    let quotient = numerator / denominator;
+    let remainder = numerator % denominator;
+    match remainder.checked_mul(2)?.cmp(&denominator) {
+        std::cmp::Ordering::Less => Some(quotient),
+        std::cmp::Ordering::Greater => quotient.checked_add(1),
+        std::cmp::Ordering::Equal if quotient % 2 == 0 => Some(quotient),
+        std::cmp::Ordering::Equal => quotient.checked_add(1),
+    }
+}
+
+fn round_to_grid(ticks: u64, grid: u64) -> Result<u64, storycut_core::CoreError> {
+    if grid == 0 {
+        return Err(storycut_core::CoreError::validation(
+            "time grid must be positive",
+        ));
+    }
+    let rounded = round_ratio_ties_even(u128::from(ticks), u128::from(grid))
+        .and_then(|count| count.checked_mul(u128::from(grid)))
+        .and_then(|value| u64::try_from(value).ok())
+        .filter(|value| *value <= MAX_TICKS)
+        .ok_or_else(|| {
+            storycut_core::CoreError::validation("time value exceeds the allowed range")
+        })?;
+    Ok(rounded)
+}
+
+fn floor_to_grid(ticks: u64, grid: u64) -> Result<u64, storycut_core::CoreError> {
+    if grid == 0 {
+        return Err(storycut_core::CoreError::validation(
+            "time grid must be positive",
+        ));
+    }
+    Ok((ticks / grid) * grid)
+}
+
+fn finite_number(
+    value: Option<&Value>,
+    default: f64,
+    field: &str,
+) -> Result<f64, storycut_core::CoreError> {
+    let value = match value {
+        Some(value) => value.as_f64().ok_or_else(|| {
+            storycut_core::CoreError::validation(format!("{field} must be a number"))
+        })?,
+        None => default,
+    };
+    if !value.is_finite() {
+        return Err(storycut_core::CoreError::validation(format!(
+            "{field} must be finite"
+        )));
+    }
+    Ok(value)
+}
+
+fn pan_vector(preset: &str, amount: f64, start: bool) -> (f64, f64) {
+    let sign = if start { 1.0 } else { -1.0 };
+    match preset {
+        "pan_left" => (sign * amount, 0.0),
+        "pan_right" => (-sign * amount, 0.0),
+        "pan_up" => (0.0, sign * amount),
+        "pan_down" => (0.0, -sign * amount),
+        _ => (0.0, 0.0),
+    }
+}
+
+fn focal_position(
+    canvas_width: u32,
+    canvas_height: u32,
+    source_width: u32,
+    source_height: u32,
+    motion_scale: f64,
+    focus: &Anchor,
+    extra_x: f64,
+    extra_y: f64,
+) -> (f64, f64, Option<(f64, f64)>) {
+    let canvas_width = f64::from(canvas_width);
+    let canvas_height = f64::from(canvas_height);
+    let fit =
+        (canvas_width / f64::from(source_width)).max(canvas_height / f64::from(source_height));
+    let scaled_width = f64::from(source_width) * fit * motion_scale;
+    let scaled_height = f64::from(source_height) * fit * motion_scale;
+    let base_x = (canvas_width - scaled_width) * 0.5;
+    let base_y = (canvas_height - scaled_height) * 0.5;
+    let desired_x = (canvas_width * 0.5 - focus.x * scaled_width - base_x) / canvas_width + extra_x;
+    let desired_y =
+        (canvas_height * 0.5 - focus.y * scaled_height - base_y) / canvas_height + extra_y;
+    let min_x = (canvas_width - scaled_width - base_x) / canvas_width;
+    let max_x = -base_x / canvas_width;
+    let min_y = (canvas_height - scaled_height - base_y) / canvas_height;
+    let max_y = -base_y / canvas_height;
+    let x = desired_x.clamp(min_x, max_x);
+    let y = desired_y.clamp(min_y, max_y);
+    let clamped = if (x - desired_x).abs() > 1e-9 || (y - desired_y).abs() > 1e-9 {
+        Some((
+            (base_x + x * canvas_width + focus.x * scaled_width) / canvas_width,
+            (base_y + y * canvas_height + focus.y * scaled_height) / canvas_height,
+        ))
+    } else {
+        None
+    };
+    (x, y, clamped)
+}
+
+fn command_to_core(error: CommandError) -> storycut_core::CoreError {
+    use storycut_core::CoreErrorCode;
+    let code = match error.code.as_str() {
+        "NOT_FOUND" => CoreErrorCode::NotFound,
+        "PATH_DENIED" => CoreErrorCode::PathDenied,
+        "UNSUPPORTED_FEATURE" => CoreErrorCode::UnsupportedFeature,
+        "MEDIA_CHANGED" => CoreErrorCode::MediaChanged,
+        "LOCKED_TRACK" => CoreErrorCode::LockedTrack,
+        "REVISION_CONFLICT" => CoreErrorCode::RevisionConflict,
+        "IDEMPOTENCY_CONFLICT" => CoreErrorCode::IdempotencyConflict,
+        "DEPENDENCY_CONFLICT" => CoreErrorCode::Conflict,
+        "INTERNAL_ERROR" | "RENDER_FAILED" => CoreErrorCode::IoError,
+        _ => CoreErrorCode::ValidationError,
+    };
+    storycut_core::CoreError::new(code, error.message)
+}
+
 fn shortcut_spec(tool: &str) -> Option<(&'static str, &'static [&'static str])> {
     match tool {
         "storycut_track_add" => Some(("track.add", &["track"])),
@@ -1774,6 +3074,447 @@ fn with_projection_warning(mut response: Value, warning: Option<&str>) -> Value 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use storycut_core::{ProbeStatus, Rational, Stream};
+
+    fn fixture_image(id: String) -> Asset {
+        Asset {
+            id,
+            kind: AssetKind::Image,
+            path: "fixture.png".into(),
+            probe_status: ProbeStatus::Probed,
+            duration_ticks: None,
+            sha256: None,
+            streams: Vec::new(),
+        }
+    }
+
+    fn fixture_audio(id: &str, duration_seconds: u64) -> Asset {
+        Asset {
+            id: id.into(),
+            kind: AssetKind::Audio,
+            path: "fixture.wav".into(),
+            probe_status: ProbeStatus::Probed,
+            duration_ticks: Some(duration_seconds * TIMEBASE),
+            sha256: None,
+            streams: vec![Stream {
+                index: 0,
+                kind: StreamKind::Audio,
+                time_base: Rational {
+                    num: 1,
+                    den: 48_000,
+                },
+                sample_rate: Some(48_000),
+            }],
+        }
+    }
+
+    fn fixture_store(workspace: &Path, assets: Vec<Asset>) -> (ProjectStore, String) {
+        let store = ProjectStore::create(
+            workspace,
+            "fixture.storycut.json",
+            "fixture",
+            Canvas::default(),
+            48_000,
+            "fixture-create",
+        )
+        .unwrap();
+        store
+            .import_assets(0, "fixture-import", false, assets)
+            .unwrap();
+        let project_id = store.snapshot().unwrap().project_id;
+        (store, project_id)
+    }
+
+    #[test]
+    fn focal_preset_wrong_type_is_rejected_before_media_access() {
+        let project = Project::empty("preset-test", "preset", Canvas::default(), 48_000);
+        for invalid in [json!(1), json!(false), Value::Null] {
+            let error = plan_focal_motion(
+                Path::new("."),
+                &project,
+                &json!({"targets":[{"clip_id":"missing"}],"preset":invalid}),
+            )
+            .unwrap_err();
+            assert!(error.to_string().contains("preset must be a string"));
+        }
+    }
+
+    #[test]
+    fn storyboard_defaults_seventy_images_and_music_loop_end_with_exact_tail_fade_and_replay() {
+        let temporary = tempfile::tempdir().unwrap();
+        let workspace = temporary.path();
+        let images = (0..70)
+            .map(|index| fixture_image(format!("image-{index:03}")))
+            .collect::<Vec<_>>();
+        let mut assets = images;
+        assets.push(fixture_audio("music", 3));
+        let (store, project_id) = fixture_store(workspace, assets);
+        let project = store.snapshot().unwrap();
+        let request = json!({
+            "project_id":project_id,
+            "expected_revision":project.revision,
+            "idempotency_key":"story-assembly-key",
+            "dry_run":true,
+            "items":(0..70).map(|index| json!({"asset_id":format!("image-{index:03}")})).collect::<Vec<_>>(),
+            "audio_tracks":[{
+                "role":"music",
+                "clips":[{
+                    "asset_id":"music","start_seconds":0,"loop_to_visual_end":true,
+                    "fade_out_seconds":1
+                }]
+            }]
+        });
+
+        let preview = dispatch(workspace, "storycut_storyboard_assemble", request.clone()).unwrap();
+        assert_eq!(preview["data"]["committed"], false);
+        assert_eq!(
+            preview["data"]["visual_duration_ticks"],
+            json!(700 * TIMEBASE)
+        );
+        assert_eq!(
+            preview["data"]["audio_duration_ticks"],
+            json!(700 * TIMEBASE)
+        );
+        assert_eq!(
+            store.snapshot().unwrap().revision,
+            1,
+            "dry run must not write"
+        );
+
+        let mut commit = request.clone();
+        commit["dry_run"] = json!(false);
+        let committed =
+            dispatch(workspace, "storycut_storyboard_assemble", commit.clone()).unwrap();
+        assert_eq!(committed["data"]["committed"], true);
+        let project = store.snapshot().unwrap();
+        assert_eq!(project.revision, 2);
+        assert_eq!(
+            project.clips.iter().filter(|clip| clip.is_visual()).count(),
+            70
+        );
+        let music_clips = project
+            .clips
+            .iter()
+            .filter_map(|clip| match clip {
+                Clip::Audio(audio) if audio.asset_id == "music" => Some(audio),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(music_clips.len(), 234);
+        let last = music_clips
+            .iter()
+            .max_by_key(|clip| clip.start_tick)
+            .unwrap();
+        assert_eq!(last.start_tick, 699 * TIMEBASE);
+        assert_eq!(last.duration_ticks, TIMEBASE);
+        assert_eq!(last.audio.domain_duration_ticks, TIMEBASE);
+        assert_eq!(last.audio.sample_offset_tick, 0);
+        assert_eq!(
+            last.audio.fade_out_ticks, TIMEBASE,
+            "a fade equal to the 1s tail is valid"
+        );
+
+        let stale = dispatch(
+            workspace,
+            "storycut_storyboard_assemble",
+            json!({
+                "project_id":project_id,"expected_revision":1,"idempotency_key":"stale-story",
+                "dry_run":false,"items":[{"asset_id":"image-000"}]
+            }),
+        )
+        .unwrap_err();
+        assert_eq!(stale.code, "REVISION_CONFLICT");
+        assert_eq!(store.snapshot().unwrap().revision, 2);
+
+        let first_visual_id = project
+            .clips
+            .iter()
+            .find(|clip| clip.is_visual())
+            .unwrap()
+            .id()
+            .to_owned();
+        let invalid_focus = dispatch(
+            workspace,
+            "storycut_focal_motion_apply",
+            json!({
+                "project_id":project_id,"expected_revision":2,"idempotency_key":"bad-focus",
+                "dry_run":false,"targets":[{"clip_id":first_visual_id}],"from_scale":0.9
+            }),
+        )
+        .unwrap_err();
+        assert_eq!(invalid_focus.code, "INVALID_ARGUMENT");
+        assert_eq!(
+            store.snapshot().unwrap().revision,
+            2,
+            "invalid scale must not write or panic"
+        );
+
+        let later_edit = store
+            .apply(
+                2,
+                "later-edit",
+                false,
+                vec![Operation::TrackAdd {
+                    track: Track {
+                        id: "later-track".into(),
+                        name: "later edit".into(),
+                        kind: TrackKind::Audio,
+                        locked: false,
+                        enabled: true,
+                        muted: false,
+                        solo: false,
+                        gain_db: 0.0,
+                    },
+                }],
+            )
+            .unwrap();
+        assert_eq!(later_edit.revision, 3);
+        store.undo(3, "undo-later-edit", false).unwrap();
+        assert_eq!(store.snapshot().unwrap().revision, 4);
+
+        let replay = dispatch(workspace, "storycut_storyboard_assemble", commit).unwrap();
+        assert_eq!(
+            replay["revision"], 2,
+            "replay returns the original committed revision"
+        );
+        assert_eq!(
+            replay["data"]["created_clip_ids"],
+            committed["data"]["created_clip_ids"]
+        );
+        assert_eq!(
+            store.snapshot().unwrap().revision,
+            4,
+            "replay after edit+undo must not reapply clips"
+        );
+        assert_eq!(store.snapshot().unwrap().clips.len(), 304);
+    }
+
+    #[test]
+    fn storyboard_rejects_locked_visual_track_and_wrong_typed_options_without_writes() {
+        let temporary = tempfile::tempdir().unwrap();
+        let (store, project_id) = fixture_store(
+            temporary.path(),
+            vec![fixture_image("image".into()), fixture_audio("music", 3)],
+        );
+        store
+            .apply(
+                1,
+                "add-locked-track",
+                false,
+                vec![Operation::TrackAdd {
+                    track: Track {
+                        id: "locked-video".into(),
+                        name: "locked".into(),
+                        kind: TrackKind::Video,
+                        locked: true,
+                        enabled: true,
+                        muted: false,
+                        solo: false,
+                        gain_db: 0.0,
+                    },
+                }],
+            )
+            .unwrap();
+        let locked = dispatch(
+            temporary.path(),
+            "storycut_storyboard_assemble",
+            json!({
+                "project_id":project_id,"expected_revision":2,"idempotency_key":"locked-story",
+                "dry_run":false,"visual_track_id":"locked-video","items":[{"asset_id":"image"}]
+            }),
+        )
+        .unwrap_err();
+        assert_eq!(locked.code, "INVALID_ARGUMENT");
+        assert_eq!(store.snapshot().unwrap().revision, 2);
+
+        for (key, options) in [
+            ("wrong-audio-tracks", json!({"audio_tracks":"music"})),
+            (
+                "wrong-audio-gain",
+                json!({"audio_tracks":[{"role":"music","clips":[{"asset_id":"music","start_seconds":0,"gain_db":"loud"}]}]}),
+            ),
+            (
+                "wrong-loop-type",
+                json!({"audio_tracks":[{"role":"music","clips":[{"asset_id":"music","start_seconds":0,"loop_to_visual_end":"yes"}]}]}),
+            ),
+            (
+                "fade-exceeds-loop-tail",
+                json!({"audio_tracks":[{"role":"music","clips":[{"asset_id":"music","start_seconds":0,"loop_to_visual_end":true,"fade_out_seconds":1.1}]}]}),
+            ),
+        ] {
+            let mut request = json!({
+                "project_id":project_id,"expected_revision":2,"idempotency_key":key,
+                "dry_run":false,"items":[{"asset_id":"image"}]
+            });
+            for (name, value) in options.as_object().unwrap() {
+                request[name] = value.clone();
+            }
+            let error =
+                dispatch(temporary.path(), "storycut_storyboard_assemble", request).unwrap_err();
+            assert_eq!(error.code, "INVALID_ARGUMENT");
+            assert_eq!(
+                store.snapshot().unwrap().revision,
+                2,
+                "invalid {key} wrote project state"
+            );
+        }
+    }
+
+    #[test]
+    fn storyboard_crossfade_reports_frame_grid_rounding_and_audio_ids_do_not_collide() {
+        let assets = vec![
+            fixture_image("still-a".into()),
+            fixture_image("still-b".into()),
+            fixture_audio("music", 3),
+        ];
+        let mut project = Project::empty("planner-test", "planner", Canvas::default(), 48_000);
+        project.assets = assets;
+        let mut request = json!({
+            "items":[{"asset_id":"still-a"},{"asset_id":"still-b"}],
+            "transition":{"kind":"cross_dissolve","duration_seconds":0.02}
+        });
+        let (_, transition_data) =
+            plan_storyboard(Path::new("."), &project, &request, "transition-key").unwrap();
+        assert_eq!(
+            transition_data["warnings"][0]["code"],
+            "TRANSITION_ROUNDED_TO_FRAME"
+        );
+        assert_eq!(
+            transition_data["warnings"][0]["duration_ticks"],
+            json!(TIMEBASE / 30)
+        );
+
+        let clips = (0..101)
+            .map(|_| json!({"asset_id":"music","start_seconds":0}))
+            .collect::<Vec<_>>();
+        request = json!({
+            "items":[{"asset_id":"still-a"}],
+            "audio_tracks":[
+                {"role":"music","clips":clips},
+                {"role":"dialogue","clips":[{"asset_id":"music","start_seconds":0}]}
+            ]
+        });
+        let (operations, _) =
+            plan_storyboard(Path::new("."), &project, &request, "collision-key").unwrap();
+        let mut ids = std::collections::HashSet::new();
+        for operation in operations {
+            if let Operation::ClipAdd { clip } = operation {
+                assert!(
+                    ids.insert(clip.id().to_owned()),
+                    "duplicate generated clip ID {}",
+                    clip.id()
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn music_loop_never_rounds_past_visual_end_on_a_different_audio_sample_grid() {
+        let mut canvas = Canvas::default();
+        canvas.fps = Rational { num: 24, den: 1 };
+        let mut project = Project::empty("sample-grid-test", "sample grid", canvas, 44_100);
+        let mut audio = fixture_audio("music", 3);
+        audio.streams[0].sample_rate = Some(44_100);
+        project.assets = vec![fixture_image("still".into()), audio];
+        let (operations, summary) = plan_storyboard(
+            Path::new("."),
+            &project,
+            &json!({
+                "items":[{"asset_id":"still","duration_seconds":0.125}],
+                "audio_tracks":[{"role":"music","clips":[{
+                    "asset_id":"music","start_seconds":0,"loop_to_visual_end":true
+                }]}]
+            }),
+            "different-grid-key",
+        )
+        .unwrap();
+        let visual_end = summary["visual_duration_ticks"].as_u64().unwrap();
+        let audio_clip = operations
+            .iter()
+            .find_map(|operation| match operation {
+                Operation::ClipAdd {
+                    clip: Clip::Audio(audio),
+                } => Some(audio),
+                _ => None,
+            })
+            .unwrap();
+        let audio_end = audio_clip.start_tick + audio_clip.duration_ticks;
+        let sample_ticks = TIMEBASE / 44_100;
+        assert!(
+            audio_end <= visual_end,
+            "music loop must not extend the video"
+        );
+        assert!(
+            visual_end - audio_end < sample_ticks,
+            "only a sub-sample remainder may be silent"
+        );
+    }
+
+    #[test]
+    fn storyboard_summary_lists_automatically_created_original_audio_clip() {
+        let mut project = Project::empty(
+            "linked-audio-test",
+            "linked audio",
+            Canvas::default(),
+            48_000,
+        );
+        project.assets = vec![Asset {
+            id: "video".into(),
+            kind: AssetKind::Video,
+            path: "fixture.mp4".into(),
+            probe_status: ProbeStatus::Probed,
+            duration_ticks: Some(5 * TIMEBASE),
+            sha256: None,
+            streams: vec![
+                Stream {
+                    index: 0,
+                    kind: StreamKind::Video,
+                    time_base: Rational {
+                        num: 1,
+                        den: 90_000,
+                    },
+                    sample_rate: None,
+                },
+                Stream {
+                    index: 1,
+                    kind: StreamKind::Audio,
+                    time_base: Rational {
+                        num: 1,
+                        den: 48_000,
+                    },
+                    sample_rate: Some(48_000),
+                },
+            ],
+        }];
+        let (operations, summary) = plan_storyboard(
+            Path::new("."),
+            &project,
+            &json!({"items":[{"asset_id":"video"}]}),
+            "linked-audio-key",
+        )
+        .unwrap();
+        let operation_clip_ids = operations
+            .iter()
+            .filter_map(|operation| match operation {
+                Operation::ClipAdd { clip } => Some(clip.id().to_owned()),
+                _ => None,
+            })
+            .collect::<std::collections::HashSet<_>>();
+        let summary_clip_ids = summary["created_clip_ids"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|value| value.as_str().unwrap().to_owned())
+            .collect::<std::collections::HashSet<_>>();
+        assert_eq!(operation_clip_ids, summary_clip_ids);
+        assert_eq!(
+            operations
+                .iter()
+                .filter(|operation| matches!(operation, Operation::LinkCreate { .. }))
+                .count(),
+            1
+        );
+    }
 
     #[test]
     fn supported_tools_advertise_range_preview_only_after_dispatch_exists() {

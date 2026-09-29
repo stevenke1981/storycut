@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 
 use fs2::FileExt;
 use serde::{Deserialize, Serialize};
-use serde_json::json;
+use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
@@ -37,6 +37,8 @@ struct IdempotencyRecord {
     key: String,
     payload: String,
     result: ApplyResult,
+    #[serde(default)]
+    response_data: Option<Value>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -65,6 +67,15 @@ pub struct ProjectStore {
 }
 
 pub type StoreError = CoreError;
+
+/// Result of a high-level command planned and committed under the project lock.
+/// `data` is persisted with the idempotency record so retries can return the
+/// original plan summary after later edits have advanced the project revision.
+#[derive(Clone, Debug, PartialEq)]
+pub struct PlannedApplyResult {
+    pub result: ApplyResult,
+    pub data: Value,
+}
 
 impl ProjectStore {
     /// Create a project under `workspace`, exporting the contract JSON to the
@@ -270,6 +281,7 @@ impl ProjectStore {
             key: idempotency_key.to_owned(),
             payload,
             result: result.clone(),
+            response_data: None,
         });
         state.history.push(HistoryRecord {
             revision,
@@ -312,36 +324,106 @@ impl ProjectStore {
                 "a transaction must contain 1 to 500 operations",
             ));
         }
+        let payload =
+            serde_json::to_string(&transaction.operations).map_err(serialization_error)?;
+        self.transact_planned(
+            transaction.project_id,
+            transaction.expected_revision,
+            transaction.idempotency_key,
+            transaction.dry_run,
+            payload,
+            move |_| Ok((transaction.operations, Value::Null)),
+        )
+        .map(|planned| planned.result)
+    }
+
+    /// Plan and apply one high-level action while holding the same durable
+    /// project lock used for revision, history, undo, and idempotency updates.
+    /// The identity must contain only semantic request fields; callers omit
+    /// `expected_revision`, `dry_run`, and `idempotency_key` so retries replay
+    /// after later revisions just like primitive timeline transactions.
+    pub fn apply_planned<F>(
+        &self,
+        expected_revision: u64,
+        idempotency_key: &str,
+        dry_run: bool,
+        command: &str,
+        identity: Value,
+        planner: F,
+    ) -> Result<PlannedApplyResult, CoreError>
+    where
+        F: FnOnce(&Project) -> Result<(Vec<Operation>, Value), CoreError>,
+    {
+        validate_key(idempotency_key)?;
+        let project_id = {
+            let _lock = self.acquire_lock()?;
+            self.read_state_unlocked()?.project.project_id
+        };
+        let payload = serde_json::to_string(&json!({
+            "command": command,
+            "request": identity,
+        }))
+        .map_err(serialization_error)?;
+        self.transact_planned(
+            project_id,
+            expected_revision,
+            idempotency_key.to_owned(),
+            dry_run,
+            payload,
+            planner,
+        )
+    }
+
+    fn transact_planned<F>(
+        &self,
+        project_id: String,
+        expected_revision: u64,
+        idempotency_key: String,
+        dry_run: bool,
+        payload: String,
+        planner: F,
+    ) -> Result<PlannedApplyResult, CoreError>
+    where
+        F: FnOnce(&Project) -> Result<(Vec<Operation>, Value), CoreError>,
+    {
+        validate_key(&idempotency_key)?;
         let _lock = self.acquire_lock()?;
         let mut state = self.read_state_unlocked()?;
-        if transaction.project_id != state.project.project_id {
+        if project_id != state.project.project_id {
             return Err(CoreError::new(
                 CoreErrorCode::Conflict,
                 "transaction project_id does not match the opened project",
             ));
         }
-        let payload =
-            serde_json::to_string(&transaction.operations).map_err(serialization_error)?;
         if let Some(record) = state
             .idempotency
             .iter()
-            .find(|item| item.key == transaction.idempotency_key)
+            .find(|item| item.key == idempotency_key)
         {
             if record.payload == payload {
-                return Ok(self.replay_result_unlocked(&state, record));
+                return Ok(PlannedApplyResult {
+                    result: self.replay_result_unlocked(&state, record),
+                    data: record.response_data.clone().unwrap_or(Value::Null),
+                });
             }
             return Err(CoreError::new(
                 CoreErrorCode::IdempotencyConflict,
-                "idempotency key was already used with different operations",
+                "idempotency key was already used with a different action",
             ));
         }
-        if transaction.expected_revision != state.project.revision {
+        if expected_revision != state.project.revision {
             return Err(CoreError::new(
                 CoreErrorCode::RevisionConflict,
                 format!(
                     "expected revision {}, current revision is {}",
-                    transaction.expected_revision, state.project.revision
+                    expected_revision, state.project.revision
                 ),
+            ));
+        }
+        let (operations, response_data) = planner(&state.project)?;
+        if operations.is_empty() || operations.len() > 500 {
+            return Err(CoreError::validation(
+                "a transaction must contain 1 to 500 operations",
             ));
         }
         let base_revision = state.project.revision;
@@ -354,18 +436,21 @@ impl ProjectStore {
             .filter(|track| track.locked)
             .map(|track| track.id.clone())
             .collect();
-        apply_operations(&mut candidate, &transaction.operations, &locked)?;
+        apply_operations(&mut candidate, &operations, &locked)?;
         let (changed_ids, removed_ids) = changed_and_removed_ids(&state.project, &candidate)?;
-        if transaction.dry_run {
-            return Ok(ApplyResult {
-                applied: false,
-                dry_run: true,
-                base_revision,
-                revision: base_revision,
-                changed_ids,
-                removed_ids,
-                duration_ticks: candidate.duration_ticks(),
-                projection_warning: None,
+        if dry_run {
+            return Ok(PlannedApplyResult {
+                result: ApplyResult {
+                    applied: false,
+                    dry_run: true,
+                    base_revision,
+                    revision: base_revision,
+                    changed_ids,
+                    removed_ids,
+                    duration_ticks: candidate.duration_ticks(),
+                    projection_warning: None,
+                },
+                data: response_data,
             });
         }
         let next_revision = base_revision
@@ -393,18 +478,22 @@ impl ProjectStore {
         });
         state.redo_stack.clear();
         state.idempotency.push(IdempotencyRecord {
-            key: transaction.idempotency_key.clone(),
+            key: idempotency_key.clone(),
             payload,
             result: result.clone(),
+            response_data: Some(response_data.clone()),
         });
         state.history.push(HistoryRecord {
             revision: next_revision,
-            key: transaction.idempotency_key,
+            key: idempotency_key,
             changed_ids,
             removed_ids,
         });
         result.projection_warning = self.commit_state_and_export(&state)?;
-        Ok(result)
+        Ok(PlannedApplyResult {
+            result,
+            data: response_data,
+        })
     }
 
     pub fn undo(
@@ -522,6 +611,7 @@ impl ProjectStore {
             key: idempotency_key.to_owned(),
             payload,
             result: result.clone(),
+            response_data: None,
         });
         result.projection_warning = self.commit_state_and_export(&state)?;
         Ok(result)
@@ -613,6 +703,7 @@ impl ProjectStore {
             key: idempotency_key.to_owned(),
             payload,
             result: result.clone(),
+            response_data: None,
         });
         state.history.push(HistoryRecord {
             revision: next_revision,
@@ -728,6 +819,7 @@ impl ProjectStore {
             key: idempotency_key.to_owned(),
             payload,
             result: result.clone(),
+            response_data: None,
         });
         state.history.push(HistoryRecord {
             revision,

@@ -1,9 +1,9 @@
 {
   "validation_kind": "specification_only_not_runtime",
-  "tool_contracts": 33,
+  "tool_contracts": 35,
   "atomic_operation_types": 19,
   "project_fixtures": 4,
-  "input_examples": 5,
+  "input_examples": 7,
   "output_examples": 2,
   "durations": {
     "two-images.storycut.json": {

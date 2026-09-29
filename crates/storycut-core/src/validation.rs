@@ -32,6 +32,7 @@ pub enum CoreErrorCode {
     Conflict,
     PathDenied,
     OverwriteDenied,
+    MediaChanged,
     IoError,
     SerializationError,
 }
@@ -48,6 +49,7 @@ impl CoreErrorCode {
             Self::Conflict => "DEPENDENCY_CONFLICT",
             Self::PathDenied => "PATH_DENIED",
             Self::OverwriteDenied => "OVERWRITE_DENIED",
+            Self::MediaChanged => "MEDIA_CHANGED",
             Self::IoError | Self::SerializationError => "INTERNAL_ERROR",
         }
     }

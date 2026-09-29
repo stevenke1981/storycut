@@ -2,7 +2,7 @@
 
 ## 狀態與目標
 
-本文件及 `contracts/mcp-tools.json` 定義 33 個目標工具；目前 `storycut mcp --stdio --workspace <DIR>` 是可執行的 JSON-RPC/MCP adapter，`tools/list` 僅列已實作工具。以 `storycut_capabilities` 查目前可用集合。以下提及 daemon、背景工作與取消的段落仍是目標契約，尚未落地。成功預覽的 `job_get(include_preview=true)` 已附 PNG image content，但超過 2 MiB 時回明確錯誤，尚未自動縮圖。
+本文件及 `contracts/mcp-tools.json` 定義工具目標契約；目前 `storycut mcp --stdio --workspace <DIR>` 是可執行的 JSON-RPC/MCP adapter，`tools/list` 僅列已實作工具。以 `storycut_capabilities` 查目前可用集合。以下提及 daemon、背景工作與取消的段落仍是目標契約，尚未落地。成功預覽的 `job_get(include_preview=true)` 已附 PNG image content，但超過 2 MiB 時回明確錯誤，尚未自動縮圖。
 
 目標使用官方 Rust SDK rmcp；先以已核對的 `2025-11-25` 核心能力作相容測試基線，**不是宣稱這是最新協議**。SDK 提供其他日期版本不代表 StoryCut 自動驗收了該版本；發佈時固定版本、協商且只宣告通過測試的能力。[M1–M4]
 
@@ -38,6 +38,7 @@ Agent host 把此命令作子程序啟動；目前 adapter 直接呼叫共用 Ru
 | 時間軸 | timeline_get、timeline_apply、track_add/update |
 | 片段 | clip_add/move/trim/split/remove、link_create |
 | 效果 | motion_set、transition_set、audio_set |
+| 故事製作 | storyboard_assemble、focal_motion_apply |
 | 字幕 | subtitle_import/update/export |
 | 歷史 | history_undo、history_redo |
 | 預覽與輸出 | preview_frame/range、render_start |
@@ -46,6 +47,8 @@ Agent host 把此命令作子程序啟動；目前 adapter 直接呼叫共用 Ru
 所有實際工具名皆以 `storycut_` 開頭；完整參數／結果以 catalog 為準。track.remove/reorder、transition.remove、link.remove、subtitle.shift、subtitle.cue.insert/remove 等由 timeline_apply 的 typed operations 提供，沒有任意 JSON patch 或任意 shell 工具。
 
 所有語義編輯捷徑都轉成 timeline_apply，不能各自寫一套位置或撤銷邏輯。project_validate/read 不會偷偷更新 probe 狀態；media_import 則是有 revision 的文件修改。
+
+故事組裝與焦點運鏡在同一 `ProjectStore` 鎖內規劃並套用 typed operations；邏輯請求的冪等結果、時間軸與歷史共同持久化。之後修改或 undo 不會讓同鍵重試再次新增片段。兩者支援 dry-run，詳細操作與限制見 [故事工作流程](STORY_WORKFLOW.md)。
 
 ## 工作與進度
 

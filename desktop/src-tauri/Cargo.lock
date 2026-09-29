@@ -2950,6 +2950,7 @@ dependencies = [
  "serde_json",
  "sha2",
  "storycut-command",
+ "storycut-core",
  "tauri",
  "tauri-build",
  "tauri-plugin-dialog",

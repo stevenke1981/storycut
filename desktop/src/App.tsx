@@ -1,9 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type DragEvent, type PointerEvent as ReactPointerEvent } from "react";
 import { api, errorText, idempotencyKey, jobOf, mediaOf, projectOf, timelineOf } from "./api";
 import { makeDemo } from "./demo";
-import { TIMEBASE, type Asset, type BackendMode, type Clip, type Envelope, type Job, type MediaKind, type Project, type Timeline, type Track, type TrackKind } from "./types";
+import { ImageMotionInspector } from "./ImageMotionInspector";
+import { StoryAssemblyPanel, type StoryboardResult } from "./StoryAssemblyPanel";
+import { TIMEBASE, type Asset, type AudioSettings, type BackendMode, type Clip, type Envelope, type Job, type MediaKind, type Project, type Timeline, type Track, type TrackKind } from "./types";
 
 type IconName = "folder" | "plus" | "play" | "pause" | "undo" | "redo" | "zoom" | "image" | "video" | "audio" | "subtitle" | "lock" | "unlock" | "eye" | "mute" | "solo" | "render" | "chevron" | "close" | "search" | "split" | "scissors" | "download" | "check";
+type HighLevelRequest = { projectId: string; workspace: string | null; revision: number; idempotencyKey: string };
 
 function Icon({ name, size = 16 }: { name: IconName; size?: number }) {
   const paths: Record<IconName, string> = {
@@ -25,7 +28,7 @@ export function App() {
   const [selectedAsset, setSelectedAsset] = useState<string | null>(null);
   const [selectedClip, setSelectedClip] = useState<string | null>(null);
   const [playhead, setPlayhead] = useState(0);
-  const [scale, setScale] = useState(68);
+  const [scale, setScale] = useState(24);
   const [playing, setPlaying] = useState(false);
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<"all" | MediaKind>("all");
@@ -43,13 +46,19 @@ export function App() {
   const [previewVideoUrl, setPreviewVideoUrl] = useState<string | null>(null);
   const [previewRange, setPreviewRange] = useState<{ startTick: number; durationTicks: number } | null>(null);
   const [previewState, setPreviewState] = useState<"idle" | "rendering" | "ready" | "unavailable">("idle");
+  const [timelineView, setTimelineView] = useState<"timeline" | "assembly">("timeline");
+  const [seekSeconds, setSeekSeconds] = useState("0");
   const previewVideo = useRef<HTMLVideoElement>(null);
   const timeScroll = useRef<HTMLDivElement>(null);
   const timelineRef = useRef<Timeline | null>(null);
   const projectRef = useRef<Project | null>(null);
+  const sessionGeneration = useRef(0);
+  const syncInFlight = useRef(false);
+  const initialFitProject = useRef<string | null>(null);
 
   useEffect(() => { timelineRef.current = timeline; }, [timeline]);
   useEffect(() => { projectRef.current = project; }, [project]);
+  useEffect(() => { setSeekSeconds((playhead / TIMEBASE).toFixed(3)); }, [playhead]);
   useEffect(() => {
     if (!toast) return;
     const id = window.setTimeout(() => setToast(null), 3500);
@@ -60,6 +69,38 @@ export function App() {
     const timer = window.setInterval(() => setPlayhead((current) => current >= timeline.duration_ticks ? 0 : current + TIMEBASE / 15), 67);
     return () => window.clearInterval(timer);
   }, [playing, timeline, mode]);
+
+  useEffect(() => {
+    if (!project || !timeline || mode !== "tauri" || busy || document.hidden || Boolean(trimState) || Boolean(dragClipId) || playing || previewState === "rendering") return;
+    const projectId = project.project_id;
+    const generation = sessionGeneration.current;
+    const workspace = api.workspacePath;
+    let disposed = false;
+    const synchronize = async () => {
+      if (disposed || syncInFlight.current || document.hidden || sessionGeneration.current !== generation || projectRef.current?.project_id !== projectId || api.workspacePath !== workspace) return;
+      syncInFlight.current = true;
+      try {
+        const result = await api.checked<{ project: Project }>("storycut_project_get", { project_id: projectId });
+        const latest = projectOf(result.data);
+        if (disposed || sessionGeneration.current !== generation || api.workspacePath !== workspace || projectRef.current?.project_id !== projectId) return;
+        if (latest.revision !== projectRef.current.revision) {
+          await refresh(projectId, generation, workspace);
+          if (!disposed && sessionGeneration.current === generation && projectRef.current?.project_id === projectId) setToast(`已同步外部修改 · 修訂版 ${latest.revision}。預覽已更新。`);
+        }
+      } catch (caught) {
+        if (!disposed && sessionGeneration.current === generation && projectRef.current?.project_id === projectId) setError(`同步工程失敗：${errorText(caught)}`);
+      } finally { syncInFlight.current = false; }
+    };
+    const timer = window.setInterval(() => { void synchronize(); }, 2000);
+    return () => { disposed = true; window.clearInterval(timer); };
+  }, [mode, project?.project_id, project?.revision, busy, timeline?.duration_ticks, trimState, dragClipId, playing, previewState]);
+
+  useEffect(() => {
+    if (!project || !timeline || initialFitProject.current === project.project_id) return;
+    initialFitProject.current = project.project_id;
+    const frame = window.requestAnimationFrame(() => fitTimeline());
+    return () => window.cancelAnimationFrame(frame);
+  }, [project?.project_id, timeline?.duration_ticks]);
 
   const safeAction = useCallback(async (action: () => Promise<void>) => {
     setError(null);
@@ -78,7 +119,8 @@ export function App() {
   const supportsTool = (tool: string) => mode === "demo" || implementedTools.includes(tool);
   const supportsOperation = (operation: string) => mode === "demo" || implementedOperations.includes(operation);
 
-  async function refresh(projectId: string) {
+  async function refresh(projectId: string, expectedGeneration = sessionGeneration.current, expectedWorkspace = api.workspacePath) {
+    if (expectedGeneration !== sessionGeneration.current || expectedWorkspace !== api.workspacePath) return;
     let snapshot: { projectResult: Envelope<{ project: Project }>; timelineResult: Envelope<Timeline>; mediaResult: Envelope<{ assets: Asset[] }> } | null = null;
     for (let attempt = 0; attempt < 3; attempt += 1) {
       const [projectResult, timelineResult, mediaResult] = await Promise.all([
@@ -93,8 +135,10 @@ export function App() {
       }
     }
     if (!snapshot) throw new Error("專案在同步期間持續變更，請重新整理後再編輯。");
+    if (expectedGeneration !== sessionGeneration.current || expectedWorkspace !== api.workspacePath) return;
     const { projectResult, timelineResult, mediaResult } = snapshot;
     await loadCapabilities();
+    if (expectedGeneration !== sessionGeneration.current || expectedWorkspace !== api.workspacePath) return;
     const p = projectOf(projectResult.data);
     if (projectRef.current?.project_id !== p.project_id) setJob(null);
     previewVideo.current?.pause();
@@ -111,6 +155,22 @@ export function App() {
     setPlaying(false);
   }
 
+  async function synchronizeProject() {
+    if (!project || mode !== "tauri") return;
+    const projectId = project.project_id;
+    const generation = sessionGeneration.current;
+    const workspace = api.workspacePath;
+    await mutate(async () => {
+      const result = await api.checked<{ project: Project }>("storycut_project_get", { project_id: projectId });
+      const latest = projectOf(result.data);
+      if (generation !== sessionGeneration.current || workspace !== api.workspacePath || projectRef.current?.project_id !== projectId) return;
+      if (latest.revision !== projectRef.current.revision) {
+        await refresh(projectId, generation, workspace);
+        setToast(`已同步工程 · 修訂版 ${latest.revision}。舊預覽已失效。`);
+      } else setToast(`工程已同步 · 修訂版 ${latest.revision}。`);
+    });
+  }
+
   async function openProject() {
     if (mode === "demo") { setToast("預覽專案不可開啟真實檔案。請關閉預覽並使用桌面版。"); return; }
     await safeAction(async () => {
@@ -119,6 +179,8 @@ export function App() {
       const previousWorkspace = api.workspacePath;
       const slash = Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\"));
       await api.setWorkspace(path.slice(0, slash));
+      sessionGeneration.current += 1;
+      initialFitProject.current = null;
       setBusy(true);
       try {
         const result = await api.checked<{ project: Project }>("storycut_project_open", { path });
@@ -126,7 +188,7 @@ export function App() {
         await refresh(opened.project_id);
         setToast(`已開啟 ${opened.name}`);
       } catch (caught) {
-        if (previousWorkspace) await api.setWorkspace(previousWorkspace);
+        if (previousWorkspace) { await api.setWorkspace(previousWorkspace); sessionGeneration.current += 1; }
         throw caught;
       } finally { setBusy(false); }
     });
@@ -140,6 +202,8 @@ export function App() {
       const slash = Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\"));
       const previousWorkspace = api.workspacePath;
       await api.setWorkspace(path.slice(0, slash));
+      sessionGeneration.current += 1;
+      initialFitProject.current = null;
       setBusy(true);
       try {
         const result = await api.checked<{ project: Project }>("storycut_project_create", {
@@ -153,13 +217,15 @@ export function App() {
         await refresh(created.project_id);
         setToast("空白專案已建立。請新增軌道與匯入素材。");
       } catch (caught) {
-        if (previousWorkspace) await api.setWorkspace(previousWorkspace);
+        if (previousWorkspace) { await api.setWorkspace(previousWorkspace); sessionGeneration.current += 1; }
         throw caught;
       } finally { setBusy(false); }
     });
   }
 
   function openDemo() {
+    sessionGeneration.current += 1;
+    initialFitProject.current = null;
     const next = makeDemo();
     setMode("demo");
     setProject(next.project);
@@ -234,6 +300,36 @@ export function App() {
     });
   }
 
+  async function runHighLevel<T>(tool: string, args: Record<string, unknown>, dryRun: boolean, request: HighLevelRequest): Promise<T> {
+    if (!project || mode !== "tauri") throw new Error("此命令只在已開啟的桌面專案中執行；未寫入專案。");
+    if (!implementedTools.includes(tool)) throw new Error(`核心能力清單尚未列出 ${tool}；未呼叫命令。`);
+    if (request.projectId !== project.project_id || request.workspace !== api.workspacePath) throw new Error("專案或工作區已切換；這份預覽不會提交，請在目前專案重新 dry-run。");
+    if (dryRun && request.revision !== project.revision) throw new Error("專案修訂已變更；這份 dry-run 尚未呼叫核心，請重新預覽。");
+    if (busy) throw new Error("共用核心正在處理另一項操作，請稍後再試。");
+    const projectId = project.project_id;
+    const generation = sessionGeneration.current;
+    const workspace = api.workspacePath;
+    setError(null); setBusy(true);
+    try {
+      const result = await api.checked<T>(tool, {
+        ...args,
+        project_id: request.projectId,
+        expected_revision: request.revision,
+        idempotency_key: request.idempotencyKey,
+        dry_run: dryRun,
+      });
+      if (result.data === null) throw new Error(`${tool} 沒有回傳交易結果。`);
+      if (!dryRun && generation === sessionGeneration.current && workspace === api.workspacePath && request.workspace === workspace && projectRef.current?.project_id === projectId) {
+        await refresh(projectId, generation, workspace);
+        setToast(`${tool} 已由共用核心提交，時間軸與預覽已更新。`);
+      }
+      return result.data;
+    } catch (caught) {
+      if (generation === sessionGeneration.current && workspace === api.workspacePath && request.projectId === projectRef.current?.project_id) setError(errorText(caught));
+      throw caught;
+    } finally { setBusy(false); }
+  }
+
   async function updateTrack(track: Track, changes: Partial<Track>) {
     if (!project || !timeline) return;
     if (mode !== "demo" && !supportsOperation("track.update")) { setError("核心能力清單未宣告 track.update；軌道狀態未變更。"); return; }
@@ -246,6 +342,29 @@ export function App() {
       await applyOperations(project, [{ op: "track.update", track_id: track.id, changes }]);
       await refresh(project.project_id);
     });
+  }
+
+  async function updateAudioClip(clip: Clip, audio: AudioSettings) {
+    if (!project || !clip.audio) return;
+    if (audio.fade_in_ticks + audio.fade_out_ticks > clip.duration_ticks) { setError("淡入與淡出秒數合計不可超過片段長度；音訊未變更。"); return; }
+    if (mode !== "demo" && !supportsOperation("audio.set")) { setError("核心能力清單未宣告 audio.set；片段音訊設定未變更。"); return; }
+    await mutate(async () => {
+      if (mode === "demo") {
+        const next = { ...clip, audio };
+        setTimeline((current) => current && ({ ...current, clips: current.clips.map((item) => item.id === clip.id ? next : item) }));
+        setProject((current) => current && ({ ...current, clips: current.clips.map((item) => item.id === clip.id ? next : item), revision: current.revision + 1 }));
+        return;
+      }
+      await applyOperations(project, [{ op: "audio.set", clip_id: clip.id, audio }]);
+      await refresh(project.project_id);
+    });
+  }
+
+  function fitTimeline() {
+    const availableWidth = Math.max(120, (timeScroll.current?.clientWidth ?? 900) - 216 - 18);
+    const duration = Math.max(18, (timelineRef.current?.duration_ticks ?? 0) / TIMEBASE + 3);
+    setScale(Math.max(0.5, Math.min(148, availableWidth / duration)));
+    if (timeScroll.current) timeScroll.current.scrollLeft = 0;
   }
 
   async function mutate(action: () => Promise<void>, recover?: () => Promise<void>) {
@@ -376,7 +495,7 @@ export function App() {
     if (!project) return;
     if (mode === "demo") { setToast("預覽模式沒有共用核心歷史。"); return; }
     const tool = which === "undo" ? "storycut_history_undo" : "storycut_history_redo";
-    await mutate(async () => { await api.checked(tool, { project_id: project.project_id, expected_revision: project.revision, idempotency_key: idempotencyKey(`history-${which}`) }); await refresh(project.project_id); });
+    await mutate(async () => { await api.checked(tool, { project_id: project.project_id, expected_revision: project.revision, idempotency_key: idempotencyKey(`history-${which}`), dry_run: false }); await refresh(project.project_id); });
   }
 
   async function showPreviewFrame(completed: Job) {
@@ -614,7 +733,16 @@ export function App() {
   const visibleSeconds = Math.max(contentSeconds + 3, 18);
   const pxPerSecond = scale;
   const timelineWidth = visibleSeconds * pxPerSecond;
+  const rulerInterval = rulerStep(pxPerSecond);
   const atTime = formatTime(playhead / TIMEBASE);
+
+  function commitNumericSeek() {
+    const value = Number(seekSeconds);
+    if (!Number.isFinite(value) || value < 0) { setError("播放頭時間請輸入 0 或更大的秒數。"); return; }
+    const frame = frameTicks(project);
+    seekTo(snapTick(Math.min(contentSeconds, value) * TIMEBASE, project?.canvas.fps.num ?? 30, project?.canvas.fps.den ?? 1));
+    setSeekSeconds((Math.min(contentSeconds, value) * TIMEBASE / frame * frame / TIMEBASE).toFixed(3));
+  }
 
   function tickFromClientX(clientX: number) {
     const bounds = timeScroll.current?.getBoundingClientRect();
@@ -683,6 +811,7 @@ export function App() {
           <span className="top-divider" />
           <button className="button button-quiet" disabled={busy || mode === "demo"} onClick={() => void openProject()}><Icon name="folder" /> 開啟</button>
           <button className="button button-quiet" disabled={busy || mode === "demo"} onClick={() => void createProject()}><Icon name="plus" /> 新專案</button>
+          {mode === "tauri" && project && <button className="button button-quiet sync-project-button" disabled={busy} title="從共用核心重新讀取目前修訂" onClick={() => void synchronizeProject()}>同步工程</button>}
           <button className="button button-primary" disabled={!project || busy} onClick={() => void startRender()}><Icon name="render" /> 匯出</button>
         </div>
       </header>
@@ -695,7 +824,7 @@ export function App() {
           <div className="panel-heading"><div><span className="eyebrow">PROJECT BIN</span><h2>素材庫 <span className="count-pill">{assets.length}</span></h2></div><button className="small-square" disabled={!project || busy || mode === "tauri" && !supportsTool("storycut_media_import")} title={mode === "tauri" && !supportsTool("storycut_media_import") ? "核心尚未實作 media_import" : "匯入工作區內媒體"} onClick={() => void importAssets()}><Icon name="plus" /></button></div>
           {!project ? <div className="asset-empty"><div className="empty-orbit"><Icon name="folder" size={22} /></div><strong>從一個故事開始</strong><p>開啟既有專案，或建立新專案，再匯入你的影像與聲音。</p><button className="button button-primary" disabled={mode === "demo"} onClick={() => void createProject()}>建立專案</button>{mode === "unavailable" && <button className="text-button" onClick={openDemo}>開啟介面預覽</button>}</div> : <>
             <div className="bin-toolbar"><label className="search-field"><Icon name="search" size={14} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜尋素材" /></label><select aria-label="素材類型篩選" value={filter} onChange={(event) => setFilter(event.target.value as typeof filter)}><option value="all">全部</option><option value="video">影片</option><option value="image">圖片</option><option value="audio">聲音</option></select></div>
-            <div className="asset-list">{filteredAssets.map((asset, index) => <AssetItem key={asset.id} asset={asset} selected={selectedAsset === asset.id} index={index} canAdd={mode === "demo" || supportsOperation("clip.add")} onSelect={() => { setSelectedAsset(asset.id); setSelectedClip(null); }} onAdd={() => void addAssetClip(asset.id)} onDragStart={(event) => event.dataTransfer.setData("application/x-storycut-asset", asset.id)} />)}{filteredAssets.length === 0 && <div className="empty-filter">{assets.length ? "找不到符合的素材" : "素材庫目前是空的"}<button className="button button-quiet" disabled={mode === "tauri" && !supportsTool("storycut_media_import")} onClick={() => void importAssets()}><Icon name="plus" /> 匯入素材</button></div>}</div>
+            <div className="asset-list">{filteredAssets.map((asset) => <AssetItem key={asset.id} asset={asset} selected={selectedAsset === asset.id} canAdd={mode === "demo" || supportsOperation("clip.add")} onSelect={() => { setSelectedAsset(asset.id); setSelectedClip(null); }} onAdd={() => void addAssetClip(asset.id)} onDragStart={(event) => event.dataTransfer.setData("application/x-storycut-asset", asset.id)} />)}{filteredAssets.length === 0 && <div className="empty-filter">{assets.length ? "找不到符合的素材" : "素材庫目前是空的"}<button className="button button-quiet" disabled={mode === "tauri" && !supportsTool("storycut_media_import")} onClick={() => void importAssets()}><Icon name="plus" /> 匯入素材</button></div>}</div>
           <div className="bin-footer" title="素材必須位於專案資料夾或其子資料夾中；不會自動複製素材"><span><span className="green-led" /> 工作區內媒體</span><span>{assets.filter((asset) => asset.sha256).length} 已驗證</span></div>
           </>}
         </aside>
@@ -709,27 +838,30 @@ export function App() {
               <div className="safe-guide" />
               <span className="stage-corner top-left" /><span className="stage-corner top-right" /><span className="stage-corner bottom-left" /><span className="stage-corner bottom-right" />
             </div></div>
-            <div className="transport"><div className="time-readout"><span>{atTime.slice(0, 8)}</span><span className="time-millis">.{atTime.slice(9)}</span><span className="time-slash">/</span><span className="duration-readout">{formatTime(contentSeconds).slice(0, 8)}</span></div><div className="transport-buttons"><button className="transport-skip" disabled={!timeline || busy} title="往前一格" onClick={() => seekTo(playhead - frameTicks(project))}>‹</button><button className={`transport-play ${playing ? "is-playing" : ""}`} disabled={!project || busy || mode === "unavailable" || mode === "tauri" && !supportsTool("storycut_preview_range")} title={mode === "demo" ? (playing ? "暫停示範播放頭" : "播放示範播放頭") : mode === "tauri" ? previewVideoUrl ? (playing ? "暫停核心影片預覽" : "播放核心影片預覽") : "同步產生最多 6 秒核心影片預覽；需等待渲染完成" : "請開啟 StoryCut 桌面版以連接共用核心"} onClick={() => void togglePlayback()}><Icon name={playing ? "pause" : "play"} size={17} /></button><button className="transport-skip" disabled={!timeline || busy} title="往後一格" onClick={() => seekTo(playhead + frameTicks(project))}>›</button></div><div className="transport-info"><span className="fps-chip">{project ? `${project.canvas.fps.num}/${project.canvas.fps.den} fps` : "—"}</span><button className="icon-btn" title="切換畫面顯示" disabled><Icon name="eye" /></button></div></div>
+            <div className="transport"><div className="time-readout"><span>{atTime.slice(0, 8)}</span><span className="time-millis">.{atTime.slice(9)}</span><span className="time-slash">/</span><span className="duration-readout">{formatTime(contentSeconds).slice(0, 8)}</span></div><div className="transport-buttons"><button className="transport-skip" disabled={!timeline || busy} title="往前一格" onClick={() => seekTo(playhead - frameTicks(project))}>‹</button><button className={`transport-play ${playing ? "is-playing" : ""}`} disabled={!project || busy || mode === "unavailable" || mode === "tauri" && !supportsTool("storycut_preview_range")} title={mode === "demo" ? (playing ? "暫停示範播放頭" : "播放示範播放頭") : mode === "tauri" ? previewVideoUrl ? (playing ? "暫停核心影片預覽" : "播放核心影片預覽") : "同步產生最多 6 秒核心影片預覽；需等待渲染完成" : "請開啟 StoryCut 桌面版以連接共用核心"} onClick={() => void togglePlayback()}><Icon name={playing ? "pause" : "play"} size={17} /></button><button className="transport-skip" disabled={!timeline || busy} title="往後一格" onClick={() => seekTo(playhead + frameTicks(project))}>›</button></div><label className="transport-seek"><span>定位秒數</span><input aria-label="以秒定位播放頭" type="number" min="0" max={contentSeconds} step="0.001" value={seekSeconds} disabled={!timeline || busy} onChange={(event) => setSeekSeconds(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") commitNumericSeek(); }} /><button type="button" disabled={!timeline || busy} onClick={commitNumericSeek}>前往</button></label><div className="transport-info"><span className="fps-chip">{project ? `${project.canvas.fps.num}/${project.canvas.fps.den} fps` : "—"}</span></div></div>
           </div>
 
           <section className="timeline-panel panel">
-            <div className="timeline-toolbar"><div className="timeline-title"><div><span className="eyebrow">EDIT SEQUENCE</span><h2>時間軸</h2></div><span className="sequence-badge">{project?.canvas.width ?? 1920} × {project?.canvas.height ?? 1080}</span></div><div className="timeline-tools"><button className="icon-btn" title="分割所選片段（共用核心）" disabled={!selectedClipData || toolbarDisabled || !supportsOperation("clip.split")} onClick={() => void splitAtPlayhead()}><Icon name="scissors" /></button><span className="top-divider" /><span className="zoom-label">縮放</span><button className="zoom-button" title="縮小時間軸" onClick={() => setScale((value) => Math.max(24, value - 8))}>−</button><input className="zoom-slider" aria-label="時間軸縮放" type="range" min="24" max="148" step="2" value={scale} onChange={(event) => setScale(Number(event.target.value))} /><button className="zoom-button" title="放大時間軸" onClick={() => setScale((value) => Math.min(148, value + 8))}>+</button><button className="zoom-reset" onClick={() => setScale(68)}>適合</button><span className="zoom-value">{Math.round(scale / 68 * 100)}%</span></div></div>
-            {!timeline ? <div className="timeline-empty"><div className="timeline-empty-mark">00:00</div><strong>時間軸尚未載入</strong><p>開啟專案後，所有片段與軌道會從 StoryCut 核心讀取。</p><button className="button button-quiet" onClick={openDemo}>查看介面預覽</button></div> : <div className="timeline-main" ref={timeScroll}>
-              <div className="timeline-labels"><div className="track-header"><span>軌道</span><button className="small-square" disabled={!supportsOperation("track.add")} title={supportsOperation("track.add") ? "新增軌道" : "核心尚未實作 track.add"} onClick={() => document.getElementById("add-track-menu")?.classList.toggle("visible")}><Icon name="plus" size={14} /></button><div className="add-track-menu" id="add-track-menu">{(["video", "image", "audio", "subtitle"] as TrackKind[]).map((kind) => <button key={kind} onClick={() => { document.getElementById("add-track-menu")?.classList.remove("visible"); void addTrack(kind); }}><Icon name={KIND_ICON[kind]} size={14} /> 新增{KIND_LABEL[kind]}軌</button>)}</div></div>{timeline.tracks.map((track) => <TrackLabel key={track.id} track={track} onToggleLock={() => void updateTrack(track, { locked: !track.locked })} onToggleMute={() => void updateTrack(track, { muted: !track.muted })} onToggleSolo={() => void updateTrack(track, { solo: !track.solo })} onToggleEnabled={() => void updateTrack(track, { enabled: !track.enabled })} />)}<div className="track-add-row"><button disabled={!supportsOperation("track.add")} onClick={() => document.getElementById("add-track-menu")?.classList.toggle("visible")}><Icon name="plus" size={13} /> 新增軌道</button></div></div>
+            <div className="timeline-toolbar"><div className="timeline-title"><div><span className="eyebrow">EDIT SEQUENCE</span><h2>{timelineView === "assembly" ? "說書排片" : "時間軸"}</h2></div><div className="sequence-view-tabs" role="tablist" aria-label="編輯工作區"><button type="button" role="tab" aria-selected={timelineView === "timeline"} className={timelineView === "timeline" ? "active" : ""} onClick={() => setTimelineView("timeline")}>時間軸</button><button type="button" role="tab" aria-selected={timelineView === "assembly"} className={timelineView === "assembly" ? "active" : ""} disabled={!project} onClick={() => setTimelineView("assembly")}>故事組裝</button></div><span className="sequence-badge">{project?.canvas.width ?? 1920} × {project?.canvas.height ?? 1080}</span></div><div className="timeline-tools" hidden={timelineView !== "timeline"}><button className="icon-btn" title="分割所選片段（共用核心）" disabled={!selectedClipData || toolbarDisabled || !supportsOperation("clip.split")} onClick={() => void splitAtPlayhead()}><Icon name="scissors" /></button><span className="top-divider" /><span className="zoom-label">縮放</span><button className="zoom-button" title="縮小時間軸" onClick={() => setScale((value) => Math.max(0.5, value - (value < 8 ? 0.5 : 8)))}>−</button><input className="zoom-slider" aria-label="時間軸縮放" type="range" min="0.5" max="148" step="0.5" value={scale} onChange={(event) => setScale(Number(event.target.value))} /><button className="zoom-button" title="放大時間軸" onClick={() => setScale((value) => Math.min(148, value + (value < 8 ? 0.5 : 8)))}>+</button><button className="zoom-reset" onClick={fitTimeline}>適合</button><span className="zoom-value">{Math.round(scale / 68 * 100)}%</span></div></div>
+            {!timeline ? <div className="timeline-empty"><div className="timeline-empty-mark">00:00</div><strong>時間軸尚未載入</strong><p>開啟專案後，所有片段與軌道會從 StoryCut 核心讀取。</p><button className="button button-quiet" onClick={openDemo}>查看介面預覽</button></div> : <>
+            <div className="timeline-view-body" hidden={timelineView !== "timeline"}><div className="timeline-main" ref={timeScroll}>
+              <div className="timeline-labels"><div className="track-header"><span>軌道</span><button className="small-square" disabled={!supportsOperation("track.add")} title={supportsOperation("track.add") ? "新增軌道" : "核心尚未實作 track.add"} onClick={() => document.getElementById("add-track-menu")?.classList.toggle("visible")}><Icon name="plus" size={14} /></button><div className="add-track-menu" id="add-track-menu">{(["video", "image", "audio", "subtitle"] as TrackKind[]).map((kind) => <button key={kind} onClick={() => { document.getElementById("add-track-menu")?.classList.remove("visible"); void addTrack(kind); }}><Icon name={KIND_ICON[kind]} size={14} /> 新增{KIND_LABEL[kind]}軌</button>)}</div></div>{timeline.tracks.map((track) => <TrackLabel key={track.id} track={track} canUpdate={mode === "demo" || supportsOperation("track.update")} onUpdateName={(name) => void updateTrack(track, { name })} onUpdateGain={(gain_db) => void updateTrack(track, { gain_db })} onToggleLock={() => void updateTrack(track, { locked: !track.locked })} onToggleMute={() => void updateTrack(track, { muted: !track.muted })} onToggleSolo={() => void updateTrack(track, { solo: !track.solo })} onToggleEnabled={() => void updateTrack(track, { enabled: !track.enabled })} />)}<div className="track-add-row"><button disabled={!supportsOperation("track.add")} onClick={() => document.getElementById("add-track-menu")?.classList.toggle("visible")}><Icon name="plus" size={13} /> 新增軌道</button></div></div>
               <div className="timeline-canvas" style={{ width: timelineWidth, ["--px-per-second" as string]: `${pxPerSecond}px` }}>
-                <div className="ruler" onPointerDown={seekFromEvent} style={{ width: timelineWidth }}><div className="ruler-base" />{Array.from({ length: Math.ceil(visibleSeconds / 5) + 1 }, (_, index) => index * 5).map((sec) => <div key={sec} className="ruler-tick" style={{ left: sec * pxPerSecond }}><span>{formatTime(sec)}</span></div>)}</div>
+                <div className="ruler" onPointerDown={seekFromEvent} style={{ width: timelineWidth }}><div className="ruler-base" />{Array.from({ length: Math.ceil(visibleSeconds / rulerInterval) + 1 }, (_, index) => index * rulerInterval).map((sec) => <div key={sec} className="ruler-tick" style={{ left: sec * pxPerSecond }}><span>{formatTime(sec)}</span></div>)}</div>
                 <div className="playhead-line" style={{ left: (playhead / TIMEBASE) * pxPerSecond }} />
                 {timeline.tracks.map((track) => <TrackLane key={track.id} track={track} clips={timeline.clips.filter((clip) => clip.track_id === track.id)} assets={assets} selectedClip={selectedClip} dragClipId={dragClipId} scale={pxPerSecond} timelineWidth={timelineWidth} onClipSelect={(clip) => { setSelectedClip(clip.id); setSelectedAsset(clip.asset_id); }} onClipDragStart={(clip) => { setDragClipId(clip.id); }} onClipDragEnd={() => setDragClipId(null)} onDrop={(event) => onTimelineDrop(event, track)} onDragOver={(event) => event.preventDefault()} onTrimStart={beginTrim} onTrimMove={updateTrim} onTrimEnd={() => void endTrim()} onPointerDown={seekFromEvent} />)}
                 <div className="timeline-tail" style={{ left: timelineWidth - 8 }}>片尾</div>
               </div>
-            </div>}
-            <div className="timeline-status"><div><span className="green-led" /> {project ? `修訂版 ${project.revision} · ${timeline?.tracks.length ?? 0} 軌道 · ${timeline?.clips.length ?? 0} 片段` : "共用核心待連線"}</div><div>{mode === "demo" ? "預覽資料 · 不會保存" : project ? "拖曳以移動 · 拖曳片段兩端以修剪" : "—"}</div></div>
+            </div></div>
+            {project && <div className="assembly-view-body" hidden={timelineView !== "assembly"}><StoryAssemblyPanel key={`${project.project_id}:${api.workspacePath ?? ""}`} projectId={project.project_id} revision={project.revision} workspace={api.workspacePath} assets={assets} tracks={timeline.tracks} mode={mode} busy={busy} supported={mode === "tauri" && implementedTools.includes("storycut_storyboard_assemble")} onAssemble={(args, dryRun, request) => runHighLevel<StoryboardResult>("storycut_storyboard_assemble", args as unknown as Record<string, unknown>, dryRun, request)} /></div>}
+            </>}
+            <div className="timeline-status"><div><span className="green-led" /> {project ? `修訂版 ${project.revision} · ${timeline?.tracks.length ?? 0} 軌道 · ${timeline?.clips.length ?? 0} 片段` : "共用核心待連線"}</div><div>{mode === "demo" ? "預覽資料 · 不會保存" : project ? timelineView === "assembly" ? "核心規劃 · dry-run 後明確提交" : "拖曳以移動 · 拖曳片段兩端以修剪" : "—"}</div></div>
           </section>
         </section>
 
         <aside className="inspector-panel panel">
           <div className="panel-heading inspector-heading"><div><span className="eyebrow">INSPECTOR</span><h2>屬性</h2></div><span className="inspector-kicker">{selectedClipData ? "CLIP" : selectedAssetData ? "MEDIA" : "PROJECT"}</span></div>
-          {!project ? <div className="inspector-empty"><div className="inspector-empty-icon"><Icon name="image" size={21} /></div><strong>尚未選取項目</strong><p>開啟一個專案，或選取素材與片段來查看資訊。</p></div> : selectedClipData ? <ClipInspector clip={selectedClipData} asset={selectedAssetData} track={timeline?.tracks.find((item) => item.id === selectedClipData.track_id)} onChange={(patch) => void trimClip(selectedClipData, selectedClipData.start_tick, patch.duration_ticks ?? selectedClipData.duration_ticks)} /> : selectedAssetData ? <AssetInspector asset={selectedAssetData} onAdd={() => void addAssetClip(selectedAssetData.id)} /> : <ProjectInspector project={project} timeline={timeline} onAddDefaults={() => void addStarterTracks()} canAddDefaults={mode === "demo" || supportsOperation("track.add")} />}
+          {!project ? <div className="inspector-empty"><div className="inspector-empty-icon"><Icon name="image" size={21} /></div><strong>尚未選取項目</strong><p>開啟一個專案，或選取素材與片段來查看資訊。</p></div> : selectedClipData ? <div className="inspector-content inspector-combined"><ClipInspector clip={selectedClipData} asset={selectedAssetData} track={timeline?.tracks.find((item) => item.id === selectedClipData.track_id)} onChange={(patch) => void trimClip(selectedClipData, selectedClipData.start_tick, patch.duration_ticks ?? selectedClipData.duration_ticks)} onAudioChange={(audio) => void updateAudioClip(selectedClipData, audio)} sampleRate={project.audio_sample_rate} />{selectedClipData.kind === "image" && selectedAssetData?.kind === "image" && <ImageMotionInspector key={`${project.project_id}:${api.workspacePath ?? ""}:${selectedClipData.id}`} projectId={project.project_id} revision={project.revision} workspace={api.workspacePath} clip={selectedClipData} asset={selectedAssetData} assets={assets} imageClips={(timeline?.clips ?? []).filter((clip) => clip.kind === "image" && timeline?.tracks.some((track) => track.id === clip.track_id && !track.locked))} mode={mode} busy={busy} supported={mode === "tauri" && implementedTools.includes("storycut_focal_motion_apply")} onApply={(args, dryRun, request) => runHighLevel("storycut_focal_motion_apply", args as unknown as Record<string, unknown>, dryRun, request)} />}</div> : selectedAssetData ? <AssetInspector asset={selectedAssetData} onAdd={() => void addAssetClip(selectedAssetData.id)} /> : <ProjectInspector project={project} timeline={timeline} onAddDefaults={() => void addStarterTracks()} canAddDefaults={mode === "demo" || supportsOperation("track.add")} />}
           <div className="inspector-bottom"><div className="render-card"><div className="render-card-top"><div className="render-icon"><Icon name="render" size={15} /></div><div><strong>輸出設定</strong><span>H.264 · AAC · MP4</span></div></div><label className="field-label">字幕處理<select disabled={!project} value={subtitleMode} onChange={(event) => setSubtitleMode(event.target.value as typeof subtitleMode)}><option value="none">不燒錄字幕</option><option value="burn">燒錄字幕</option></select></label><label className="field-label">編碼器<select disabled={!project} value={encoder} onChange={(event) => setEncoder(event.target.value as typeof encoder)}><option value="h264_cpu">H.264 · CPU</option><option value="h264_nvenc">H.264 · NVIDIA NVENC</option></select></label><button className="button button-primary render-button" disabled={!project || busy || mode === "tauri" && !supportsTool("storycut_render_start")} title={mode === "tauri" && !supportsTool("storycut_render_start") ? "核心尚未實作 render_start" : "匯出影片"} onClick={() => void startRender()}><Icon name="render" /> 開始匯出</button></div>{job && <div className="job-card"><div className="job-title"><strong>{job.kind === "render" ? "影片輸出工作" : "預覽工作"}</strong><span className={`job-state ${job.state}`}>{job.state}</span></div><div className="job-meta">來源修訂 v{job.source_revision} · {job.job_id}</div><div className="progress-track"><i style={{ width: `${Math.round((job.progress ?? (job.state === "succeeded" ? 1 : 0)) * 100)}%` }} /></div><div className="job-actions"><span>{job.progress == null ? "等待核心狀態" : `${Math.round(job.progress * 100)}%`}</span><button onClick={() => void refreshJob()}>更新狀態</button>{["queued", "running", "cancelling"].includes(job.state) && <button onClick={() => void cancelJob()}>取消</button>}</div></div>}</div>
         </aside>
       </section>
@@ -741,13 +873,18 @@ export function App() {
   );
 }
 
-function TrackLabel({ track, onToggleLock, onToggleMute, onToggleSolo, onToggleEnabled }: { track: Track; onToggleLock: () => void; onToggleMute: () => void; onToggleSolo: () => void; onToggleEnabled: () => void }) {
-  return <div className={`track-label ${track.kind} ${track.locked ? "is-locked" : ""}`}><div className="track-name-row"><span className={`track-kind ${track.kind}`}><Icon name={KIND_ICON[track.kind]} size={12} /></span><strong>{track.name}</strong><button className={`track-eye ${track.enabled ? "active" : ""}`} title={track.enabled ? "隱藏軌道" : "顯示軌道"} onClick={onToggleEnabled}><Icon name="eye" size={13} /></button></div><div className="track-controls"><span className="track-index">{track.kind === "video" ? "V" : track.kind === "image" ? "I" : track.kind === "audio" ? "A" : "S"}</span>{track.kind === "audio" && <><button className={track.muted ? "control-active" : ""} title={track.muted ? "取消靜音" : "靜音"} onClick={onToggleMute}>M</button><button className={track.solo ? "solo-active" : ""} title={track.solo ? "取消獨奏" : "獨奏"} onClick={onToggleSolo}>S</button></>}<button className={track.locked ? "control-active" : ""} title={track.locked ? "解除軌道鎖定" : "鎖定軌道"} onClick={onToggleLock}><Icon name={track.locked ? "lock" : "unlock"} size={12} /></button></div></div>;
+function TrackLabel({ track, canUpdate, onUpdateName, onUpdateGain, onToggleLock, onToggleMute, onToggleSolo, onToggleEnabled }: { track: Track; canUpdate: boolean; onUpdateName: (name: string) => void; onUpdateGain: (gain: number) => void; onToggleLock: () => void; onToggleMute: () => void; onToggleSolo: () => void; onToggleEnabled: () => void }) {
+  const [name, setName] = useState(track.name);
+  const [gain, setGain] = useState(track.gain_db);
+  useEffect(() => { setName(track.name); setGain(track.gain_db); }, [track.id, track.name, track.gain_db]);
+  function commitName() { const value = name.trim(); if (!value) { setName(track.name); return; } if (canUpdate && !track.locked && value !== track.name) onUpdateName(value); }
+  function commitGain() { if (canUpdate && !track.locked && Number.isFinite(gain) && gain !== track.gain_db) onUpdateGain(gain); }
+  return <div className={`track-label ${track.kind} ${track.locked ? "is-locked" : ""}`}><div className="track-name-row"><span className={`track-kind ${track.kind}`}><Icon name={KIND_ICON[track.kind]} size={12} /></span><input aria-label={`${track.name} 軌道名稱`} className="track-name-editor" value={name} maxLength={200} disabled={!canUpdate || track.locked} title={canUpdate ? "修改軌道名稱" : "核心尚未實作 track.update"} onChange={(event) => setName(event.target.value)} onBlur={commitName} onKeyDown={(event) => { if (event.key === "Enter") event.currentTarget.blur(); }} /><button className={`track-eye ${track.enabled ? "active" : ""}`} title={track.enabled ? "隱藏軌道" : "顯示軌道"} onClick={onToggleEnabled}><Icon name="eye" size={13} /></button></div><div className="track-controls"><span className="track-index">{track.kind === "video" ? "V" : track.kind === "image" ? "I" : track.kind === "audio" ? "A" : "S"}</span>{track.kind === "audio" && <><button className={track.muted ? "control-active" : ""} title={track.muted ? "取消靜音" : "靜音"} onClick={onToggleMute}>M</button><button className={track.solo ? "solo-active" : ""} title={track.solo ? "取消獨奏" : "獨奏"} onClick={onToggleSolo}>S</button><label className="track-gain" title={`軌道增益 ${gain} dB`}><span>{gain}dB</span><input aria-label={`${track.name} 軌道增益 dB`} type="range" min="-48" max="12" step="1" value={gain} disabled={!canUpdate || track.locked} onChange={(event) => setGain(Number(event.target.value))} onPointerUp={commitGain} onBlur={commitGain} /></label></>}<button className={track.locked ? "control-active" : ""} title={track.locked ? "解除軌道鎖定" : "鎖定軌道"} onClick={onToggleLock}><Icon name={track.locked ? "lock" : "unlock"} size={12} /></button></div></div>;
 }
 
-function AssetItem({ asset, selected, index, canAdd, onSelect, onAdd, onDragStart }: { asset: Asset; selected: boolean; index: number; canAdd: boolean; onSelect: () => void; onAdd: () => void; onDragStart: (event: DragEvent<HTMLDivElement>) => void }) {
+function AssetItem({ asset, selected, canAdd, onSelect, onAdd, onDragStart }: { asset: Asset; selected: boolean; canAdd: boolean; onSelect: () => void; onAdd: () => void; onDragStart: (event: DragEvent<HTMLDivElement>) => void }) {
   return <div className={`asset-item ${selected ? "selected" : ""}`} onClick={onSelect} draggable={canAdd} onDragStart={onDragStart}>
-    <div className={`asset-thumb ${asset.kind} thumb-${index % 5}`}><div className="thumb-grid" />{asset.kind === "audio" ? <div className="waveform-mini">{Array.from({ length: 26 }, (_, i) => <i key={i} style={{ height: `${8 + ((i * 17 + index * 9) % 24)}px` }} />)}</div> : <div className="thumb-object">{asset.kind === "video" ? <Icon name="play" size={15} /> : <Icon name="image" size={17} />}</div>}<span className="media-duration">{asset.kind === "image" ? "STILL" : formatTime((asset.duration_ticks ?? 0) / TIMEBASE)}</span></div>
+    <div className={`asset-thumb ${asset.kind}`} aria-hidden="true"><div className="thumb-object">{asset.kind === "video" ? <Icon name="play" size={15} /> : <Icon name={KIND_ICON[asset.kind]} size={17} />}</div><span className="media-duration">{asset.kind === "image" ? "IMAGE" : formatTime((asset.duration_ticks ?? 0) / TIMEBASE)}</span></div>
     <div className="asset-info"><div className="asset-name" title={asset.path}>{asset.path.split(/[\\/]/).pop()}</div><div className="asset-meta"><Icon name={KIND_ICON[asset.kind]} size={12} /><span>{KIND_LABEL[asset.kind]}</span><span className="meta-dot">·</span><span>{asset.probe_status === "probed" ? "已檢查" : asset.probe_status === "unprobed" ? "未探測" : "離線"}</span></div></div>
     <button className="asset-add" title={canAdd ? "加入時間軸" : "核心尚未實作 clip.add"} disabled={!canAdd} onClick={(event) => { event.stopPropagation(); onAdd(); }}><Icon name="plus" size={15} /></button>
   </div>;
@@ -763,11 +900,11 @@ function TrackLane({ track, clips, assets, selectedClip, dragClipId, scale, time
     {clips.map((clip) => {
       const asset = assets.find((item) => item.id === clip.asset_id);
       const startX = clip.start_tick / TIMEBASE * scale;
-      const width = Math.max(38, clip.duration_ticks / TIMEBASE * scale);
+      const width = Math.max(Math.min(38, Math.max(5, scale * 10)), clip.duration_ticks / TIMEBASE * scale);
       const style = { left: startX, width, opacity: track.enabled ? 1 : 0.38 } as CSSProperties;
-      return <div key={clip.id} className={`clip-card ${clip.kind} ${selectedClip === clip.id ? "selected" : ""} ${track.locked ? "locked" : ""} ${dragClipId === clip.id ? "dragging" : ""}`} style={style} draggable={!track.locked} onClick={(event) => { event.stopPropagation(); onClipSelect(clip); }} onDragStart={(event) => { event.dataTransfer.setData("application/x-storycut-clip", clip.id); onClipDragStart(clip); }} onDragEnd={onClipDragEnd} onDoubleClick={() => onClipSelect(clip)}>
+      return <div key={clip.id} className={`clip-card ${clip.kind} ${width < 78 ? "compact" : ""} ${selectedClip === clip.id ? "selected" : ""} ${track.locked ? "locked" : ""} ${dragClipId === clip.id ? "dragging" : ""}`} title={`${asset?.path.split(/[\\/]/).pop() ?? clip.id} · ${formatTime(clip.start_tick / TIMEBASE)} · ${formatTime(clip.duration_ticks / TIMEBASE)}`} style={style} draggable={!track.locked} onClick={(event) => { event.stopPropagation(); onClipSelect(clip); }} onDragStart={(event) => { event.dataTransfer.setData("application/x-storycut-clip", clip.id); onClipDragStart(clip); }} onDragEnd={onClipDragEnd} onDoubleClick={() => onClipSelect(clip)}>
         <button className="trim-handle left" aria-label="修剪片段起點" onPointerDown={(event) => onTrimStart(event, clip, "left")} onPointerMove={onTrimMove} onPointerUp={onTrimEnd} />
-        {clip.kind === "audio" ? <><div className="clip-waveform">{Array.from({ length: Math.max(6, Math.floor(width / 5)) }, (_, i) => <i key={i} style={{ height: `${7 + ((i * 13 + clip.id.length * 5) % 17)}px` }} />)}</div><span className="clip-label">{asset?.path.split(/[\\/]/).pop()}</span></> : <><div className={`clip-image clip-image-${clip.id.length % 4}`}><Icon name={clip.kind === "video" ? "play" : "image"} size={11} /></div><span className="clip-label">{asset?.path.split(/[\\/]/).pop()}</span><span className="clip-subtitle">{formatTime(clip.duration_ticks / TIMEBASE)} · {clip.kind === "video" ? "VIDEO" : "IMAGE"}</span></>}
+        {clip.kind === "audio" ? <><span className="audio-strip-tag">AUDIO STRIP</span><span className="clip-label">{asset?.path.split(/[\\/]/).pop()}</span></> : <><div className={`clip-image ${clip.kind}`}><Icon name={clip.kind === "video" ? "play" : "image"} size={11} /></div><span className="clip-label">{asset?.path.split(/[\\/]/).pop()}</span><span className="clip-subtitle">{formatTime(clip.duration_ticks / TIMEBASE)} · {clip.kind === "video" ? "VIDEO" : "IMAGE"}</span></>}
         {track.locked && <span className="clip-lock"><Icon name="lock" size={11} /></span>}
         <button className="trim-handle right" aria-label="修剪片段結尾" onPointerDown={(event) => onTrimStart(event, clip, "right")} onPointerMove={onTrimMove} onPointerUp={onTrimEnd} />
       </div>;
@@ -775,10 +912,32 @@ function TrackLane({ track, clips, assets, selectedClip, dragClipId, scale, time
   </div>;
 }
 
-function ClipInspector({ clip, asset, track, onChange }: { clip: Clip; asset: Asset | null; track?: Track; onChange: (patch: Partial<Clip>) => void }) {
+function ClipInspector({ clip, asset, track, onChange, onAudioChange, sampleRate }: { clip: Clip; asset: Asset | null; track?: Track; onChange: (patch: Partial<Clip>) => void; onAudioChange: (audio: AudioSettings) => void; sampleRate: number }) {
   const [duration, setDuration] = useState((clip.duration_ticks / TIMEBASE).toFixed(2));
   useEffect(() => setDuration((clip.duration_ticks / TIMEBASE).toFixed(2)), [clip.id, clip.duration_ticks]);
-  return <div className="inspector-content"><div className="selected-item-card"><div className={`selected-thumb ${clip.kind}`}><Icon name={KIND_ICON[clip.kind]} size={20} /></div><div><span className="eyebrow">{clip.kind.toUpperCase()} CLIP</span><strong>{asset?.path.split(/[\\/]/).pop() ?? clip.id}</strong><span className="muted-text">位於 {track?.name ?? clip.track_id}</span></div></div><div className="inspector-section"><div className="section-title">基本設定 <span>編輯送交共用核心</span></div><div className="two-fields"><label className="field-label">起點<input readOnly value={formatTime(clip.start_tick / TIMEBASE)} /></label><label className="field-label">素材入點<input readOnly value={formatTime(clip.source_in_tick / TIMEBASE)} /></label></div><label className="field-label">片段長度<input value={duration} inputMode="decimal" onChange={(event) => setDuration(event.target.value)} onBlur={() => { const value = Number(duration); if (Number.isFinite(value) && value > 0) onChange({ duration_ticks: Math.round(value * TIMEBASE) }); }} /><small>秒 · 影像以專案幀率對齊</small></label><div className="readout-row"><span>素材狀態</span><span className={`probe-pill ${asset?.probe_status}`}>{asset?.probe_status === "probed" ? "已探測" : asset?.probe_status === "offline" ? "素材離線" : "未探測"}</span></div><div className="readout-row"><span>片段 ID</span><code>{clip.id}</code></div>{clip.kind === "video" && <div className="readout-row"><span>原聲</span><span>{clip.audio_policy === "separate_linked" ? "已連結音軌" : "靜音"}</span></div>}</div><div className="inspector-section"><div className="section-title">時間位置 <span>timebase 705.6 MHz</span></div><div className="position-bar"><i style={{ left: `${Math.min(95, clip.start_tick / Math.max(1, clip.start_tick + clip.duration_ticks) * 100)}%` }} /><b style={{ width: `${Math.min(80, clip.duration_ticks / Math.max(clip.start_tick + clip.duration_ticks, clip.duration_ticks) * 100)}%` }} /></div><div className="position-ends"><span>{formatTime(clip.start_tick / TIMEBASE)}</span><span>{formatTime((clip.start_tick + clip.duration_ticks) / TIMEBASE)}</span></div></div></div>;
+  const [audioGain, setAudioGain] = useState((clip.audio?.gain_db ?? 0).toString());
+  const [audioFadeIn, setAudioFadeIn] = useState(((clip.audio?.fade_in_ticks ?? 0) / TIMEBASE).toFixed(2));
+  const [audioFadeOut, setAudioFadeOut] = useState(((clip.audio?.fade_out_ticks ?? 0) / TIMEBASE).toFixed(2));
+  useEffect(() => {
+    setAudioGain((clip.audio?.gain_db ?? 0).toString());
+    setAudioFadeIn(((clip.audio?.fade_in_ticks ?? 0) / TIMEBASE).toFixed(2));
+    setAudioFadeOut(((clip.audio?.fade_out_ticks ?? 0) / TIMEBASE).toFixed(2));
+  }, [clip.id, clip.audio?.gain_db, clip.audio?.fade_in_ticks, clip.audio?.fade_out_ticks, clip.audio?.muted]);
+  function sampleAlignedTicks(value: string) {
+    const seconds = Number(value);
+    if (!Number.isFinite(seconds) || seconds < 0) return null;
+    const sampleTicks = TIMEBASE / sampleRate;
+    return Number.isInteger(sampleTicks) ? Math.round(seconds * sampleRate) * sampleTicks : Math.round(seconds * TIMEBASE);
+  }
+  function saveAudio(patch: Partial<AudioSettings>) {
+    if (!clip.audio) return;
+    const gain = Number(audioGain);
+    const fadeIn = sampleAlignedTicks(audioFadeIn);
+    const fadeOut = sampleAlignedTicks(audioFadeOut);
+    if (!Number.isFinite(gain) || gain < -96 || gain > 24 || fadeIn === null || fadeOut === null || fadeIn + fadeOut > clip.duration_ticks) return;
+    onAudioChange({ ...clip.audio, gain_db: gain, fade_in_ticks: fadeIn, fade_out_ticks: fadeOut, ...patch });
+  }
+  return <div className="clip-inspector-content"><div className="selected-item-card"><div className={`selected-thumb ${clip.kind}`}><Icon name={KIND_ICON[clip.kind]} size={20} /></div><div><span className="eyebrow">{clip.kind.toUpperCase()} CLIP</span><strong>{asset?.path.split(/[\\/]/).pop() ?? clip.id}</strong><span className="muted-text">位於 {track?.name ?? clip.track_id}</span></div></div><div className="inspector-section"><div className="section-title">基本設定 <span>編輯送交共用核心</span></div><div className="two-fields"><label className="field-label">起點<input readOnly value={formatTime(clip.start_tick / TIMEBASE)} /></label><label className="field-label">素材入點<input readOnly value={formatTime(clip.source_in_tick / TIMEBASE)} /></label></div><label className="field-label">片段長度<input value={duration} inputMode="decimal" onChange={(event) => setDuration(event.target.value)} onBlur={() => { const value = Number(duration); if (Number.isFinite(value) && value > 0) onChange({ duration_ticks: Math.round(value * TIMEBASE) }); }} /><small>秒 · 影像以專案幀率對齊</small></label><div className="readout-row"><span>素材狀態</span><span className={`probe-pill ${asset?.probe_status}`}>{asset?.probe_status === "probed" ? "已探測" : asset?.probe_status === "offline" ? "素材離線" : "未探測"}</span></div><div className="readout-row"><span>片段 ID</span><code>{clip.id}</code></div>{clip.kind === "video" && <div className="readout-row"><span>原聲</span><span>{clip.audio_policy === "separate_linked" ? "已連結音軌" : "靜音"}</span></div>}</div>{clip.kind === "audio" && clip.audio && <div className="inspector-section"><div className="section-title">片段音訊 <span>獨立音訊處理</span></div><label className="field-label">片段增益 dB<input type="number" min="-96" max="24" step="1" value={audioGain} onChange={(event) => setAudioGain(event.target.value)} onBlur={() => saveAudio({})} /></label><div className="two-fields"><label className="field-label">淡入秒數<input type="number" min="0" step="0.1" value={audioFadeIn} onChange={(event) => setAudioFadeIn(event.target.value)} onBlur={() => saveAudio({})} /></label><label className="field-label">淡出秒數<input type="number" min="0" step="0.1" value={audioFadeOut} onChange={(event) => setAudioFadeOut(event.target.value)} onBlur={() => saveAudio({})} /></label></div><label className="audio-mute-check"><input type="checkbox" checked={clip.audio.muted} onChange={(event) => saveAudio({ muted: event.currentTarget.checked })} />靜音此片段</label></div>}<div className="inspector-section"><div className="section-title">時間位置 <span>timebase 705.6 MHz</span></div><div className="position-bar"><i style={{ left: `${Math.min(95, clip.start_tick / Math.max(1, clip.start_tick + clip.duration_ticks) * 100)}%` }} /><b style={{ width: `${Math.min(80, clip.duration_ticks / Math.max(clip.start_tick + clip.duration_ticks, clip.duration_ticks) * 100)}%` }} /></div><div className="position-ends"><span>{formatTime(clip.start_tick / TIMEBASE)}</span><span>{formatTime((clip.start_tick + clip.duration_ticks) / TIMEBASE)}</span></div></div></div>;
 }
 
 function AssetInspector({ asset, onAdd }: { asset: Asset; onAdd: () => void }) {
@@ -798,6 +957,10 @@ function defaultMotion(duration: number) {
 function snapTick(tick: number, fpsNum: number, fpsDen: number) {
   const frame = TIMEBASE * fpsDen / fpsNum;
   return Math.max(0, Math.round(tick / frame) * frame);
+}
+
+function rulerStep(pxPerSecond: number) {
+  return [5, 10, 15, 30, 60, 120, 300, 600, 1800, 3600, 7200].find((seconds) => seconds * pxPerSecond >= 65) ?? 7200;
 }
 
 function frameTicks(project: Project | null) { return project ? TIMEBASE * project.canvas.fps.den / project.canvas.fps.num : TIMEBASE / 30; }

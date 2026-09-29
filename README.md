@@ -2,7 +2,11 @@
 
 目前提供 Rust 共用剪輯核心、Tauri 2 + React 桌面介面、JSON CLI、stdio MCP 與 FFmpeg 渲染。工作區內的工程、素材、時間軸和歷史由同一核心管理；桌面版和 Agent 指令共用 `storycut-command`。
 
-這是開發中的可執行版本。實際可用工具以 `storycut_capabilities` 和 MCP `tools/list` 為準。尚未完成背景工作取消／重啟恢復、全部字幕樣式、GPU 編碼與發行安裝驗收；[實作與驗收紀錄](docs/IMPLEMENTATION_STATUS.md) 列出已跑過的項目與限制。`contracts/` 的 33 個工具是目標契約，並非全部已實作。
+這是開發中的可執行版本。實際可用工具以 `storycut_capabilities` 和 MCP `tools/list` 為準。尚未完成背景工作取消／完整重啟恢復、全部字幕樣式、GPU 編碼與發行安裝驗收；[實作與驗收紀錄](docs/IMPLEMENTATION_STATUS.md) 列出已跑過的項目與限制。`contracts/` 的工具包含目標契約，並非全部已實作。
+
+## 夜燈說書製作
+
+故事組裝支援依序加入大量圖片／影片，圖片預設各 10 秒，可搭配旁白、角色對話與循環配樂。圖片可點選主體焦點，套用推近、拉遠與上下左右平移；核心會限制取景邊界。桌面版、CLI 與 MCP 共用 `storycut_storyboard_assemble` 和 `storycut_focal_motion_apply`，詳細流程見 [夜燈說書操作指南](docs/STORY_WORKFLOW.md)。
 
 ## Windows 開發啟動
 
@@ -35,7 +39,7 @@ npm run tauri dev
 2. 加入真正多軌：影片／混合畫面、圖片疊加、聲音與字幕。圖片可放主影片軌，也可放獨立圖片軌。
 3. GUI、CLI、MCP 必須共用同一 Rust 指令核心、工作區狀態、歷史紀錄與渲染計畫。
 4. 影片原聲是連結的獨立音訊片段，支援同步移動／分割／裁切；不可同時再從影片路徑重播原聲。
-5. 增加 33 個 MCP 工具契約、19 種原子時間軸操作、版本衝突／冪等／dry-run／批次回滾／工作取消規範。
+5. 提供 MCP 工具契約、19 種原子時間軸操作，以及版本衝突／冪等／dry-run／批次回滾／工作取消規範；可用集合以 capabilities 為準。
 
 保留：圖片設定秒數、上下左右平移與縮放、影片剪輯、SRT/ASS/SSA/VTT 編輯、基本轉場、旁白配樂、存檔復原與無字幕／燒錄字幕輸出。
 
@@ -46,7 +50,7 @@ npm run tauri dev
 - docs/MCP.md、docs/CLI.md：Agent 與程式介面契約。
 - docs/TRANSACTIONS.md、docs/RENDER_JOBS.md、docs/SECURITY.md：併行編輯、工作與安全。
 - ARCHITECTURE.md、PLAN.md：Rust 模組與開發順序。
-- contracts/：JSON Schema、33 工具、19 操作、錯誤碼與 CLI 對照。
+- contracts/：JSON Schema、工具目錄、19 操作、錯誤碼與 CLI 對照。
 - examples/：19 秒與 28 秒的時間軸、批次交易、MCP 訊息及輸出请求範例。
 - AGENTS.md、skills/storycut-edit/SKILL.md：開發與剪輯 Agent 的操作規範。
 - ACCEPTANCE.md：待實作／待實機測試的驗收項目，不是通過報告。

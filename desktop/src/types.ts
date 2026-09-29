@@ -49,6 +49,17 @@ export interface Motion {
   keyframes: MotionKeyframe[];
 }
 
+export interface AudioSettings {
+  domain_duration_ticks: number;
+  sample_offset_tick: number;
+  gain_db: number;
+  pan: number;
+  muted: boolean;
+  fade_in_ticks: number;
+  fade_out_ticks: number;
+  fade_curve: "linear_amplitude";
+}
+
 export interface Clip {
   id: string;
   track_id: string;
@@ -60,16 +71,7 @@ export interface Clip {
   stream_index?: number;
   motion?: Motion;
   audio_policy?: "muted" | "separate_linked";
-  audio?: {
-    domain_duration_ticks: number;
-    sample_offset_tick: number;
-    gain_db: number;
-    pan: number;
-    muted: boolean;
-    fade_in_ticks: number;
-    fade_out_ticks: number;
-    fade_curve: "linear_amplitude";
-  };
+  audio?: AudioSettings;
 }
 
 export interface Project {

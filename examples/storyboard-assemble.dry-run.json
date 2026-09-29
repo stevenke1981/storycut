@@ -1,0 +1,47 @@
+{
+  "project_id": "demo-multitrack",
+  "expected_revision": 8,
+  "idempotency_key": "storyboard-preview-example",
+  "dry_run": true,
+  "visual_track_id": "v1",
+  "items": [
+    { "asset_id": "image-a" },
+    { "asset_id": "image-b" },
+    { "asset_id": "video-c" }
+  ],
+  "transition": {
+    "kind": "cross_dissolve",
+    "duration_seconds": 1
+  },
+  "original_video_audio": "separate_linked",
+  "audio_tracks": [
+    {
+      "role": "narration",
+      "track_id": "a2",
+      "clips": [
+        { "asset_id": "narration", "start_seconds": 28 }
+      ]
+    },
+    {
+      "role": "dialogue",
+      "track_name": "小虎",
+      "clips": [
+        { "asset_id": "sfx", "start_seconds": 42 }
+      ]
+    },
+    {
+      "role": "music",
+      "track_id": "a3",
+      "clips": [
+        {
+          "asset_id": "music",
+          "start_seconds": 0,
+          "gain_db": -18,
+          "fade_in_seconds": 1,
+          "fade_out_seconds": 1,
+          "loop_to_visual_end": true
+        }
+      ]
+    }
+  ]
+}

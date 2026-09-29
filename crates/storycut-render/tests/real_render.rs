@@ -712,6 +712,185 @@ fn ffmpeg_renders_real_layers_audio_offset_and_srt_then_verifies_output() {
 }
 
 #[test]
+fn range_preview_ignores_missing_media_outside_effective_inputs() {
+    if Command::new("ffmpeg").arg("-version").output().is_err()
+        || Command::new("ffprobe").arg("-version").output().is_err()
+    {
+        eprintln!("SKIP: ffmpeg and ffprobe are runtime requirements for range preview acceptance");
+        return;
+    }
+    let (dir, _temp) = unique_artifact_dir();
+    generate_sources(&dir);
+    let mut value = project();
+    let add_missing_asset = |value: &mut Value, id: &str, kind: &str| {
+        value["assets"].as_array_mut().unwrap().push(json!({
+            "id":id,"kind":kind,"path":format!("missing-{id}.{}", if kind == "image" {"png"} else {"wav"}),
+            "probe_status":"unprobed","duration_ticks":null,"sha256":null,"streams":[]
+        }));
+    };
+    add_missing_asset(&mut value, "unreferenced", "image");
+    add_missing_asset(&mut value, "future", "image");
+    add_missing_asset(&mut value, "disabled", "image");
+    add_missing_asset(&mut value, "transparent", "image");
+    add_missing_asset(&mut value, "muted", "audio");
+    add_missing_asset(&mut value, "not-solo", "audio");
+
+    let second = TIMEBASE;
+    value["tracks"].as_array_mut().unwrap().extend([
+        json!({"id":"disabled-visual","kind":"image","enabled":false}),
+        json!({"id":"transparent-visual","kind":"image","enabled":true}),
+        json!({"id":"muted-audio","kind":"audio","enabled":true,"muted":true}),
+        json!({"id":"not-solo-audio","kind":"audio","enabled":true,"muted":false,"solo":false}),
+    ]);
+    value["tracks"][2]["solo"] = Value::Bool(true);
+
+    let motion = json!({
+        "domain_duration_ticks":second,"sample_offset_tick":0,"fit":"cover",
+        "avoid_exposed_edges":false,"anchor":{"x":0.5,"y":0.5},"interpolation":"linear",
+        "keyframes":[
+            {"tick":0,"x":0,"y":0,"scale":1,"opacity":0},
+            {"tick":second-TIMEBASE/8,"x":0,"y":0,"scale":1,"opacity":0}
+        ]
+    });
+    value["clips"].as_array_mut().unwrap().extend([
+        json!({"id":"future-clip","track_id":"base","asset_id":"future","kind":"image",
+            "start_tick":2*second,"duration_ticks":second,"source_in_tick":0}),
+        json!({"id":"disabled-clip","track_id":"disabled-visual","asset_id":"disabled","kind":"image",
+            "start_tick":0,"duration_ticks":second,"source_in_tick":0}),
+        json!({"id":"transparent-clip","track_id":"transparent-visual","asset_id":"transparent","kind":"image",
+            "start_tick":0,"duration_ticks":second,"source_in_tick":0,"motion":motion}),
+        json!({"id":"muted-clip","track_id":"muted-audio","asset_id":"muted","kind":"audio",
+            "start_tick":0,"duration_ticks":second,"source_in_tick":0,"stream_index":0,
+            "audio":{"domain_duration_ticks":second,"sample_offset_tick":0,"gain_db":0,"pan":0,
+                "muted":false,"fade_in_ticks":0,"fade_out_ticks":0}}),
+        json!({"id":"not-solo-clip","track_id":"not-solo-audio","asset_id":"not-solo","kind":"audio",
+            "start_tick":0,"duration_ticks":second,"source_in_tick":0,"stream_index":0,
+            "audio":{"domain_duration_ticks":second,"sample_offset_tick":0,"gain_db":0,"pan":0,
+                "muted":false,"fade_in_ticks":0,"fade_out_ticks":0}}),
+    ]);
+
+    let preview = render_frame(
+        &value,
+        &dir.join("project.storycut.json"),
+        &dir.join("effective-inputs.png"),
+        TIMEBASE / 8,
+        80,
+        46,
+        false,
+    )
+    .expect("missing media that cannot contribute to this frame must not block preview");
+    assert_eq!(preview.decoded_frame_count, 1);
+}
+
+#[test]
+fn real_ffmpeg_renders_a_large_multitrack_filter_graph_and_cleans_its_script() {
+    if Command::new("ffmpeg").arg("-version").output().is_err()
+        || Command::new("ffprobe").arg("-version").output().is_err()
+    {
+        eprintln!("SKIP: ffmpeg and ffprobe are runtime requirements for large graph acceptance");
+        return;
+    }
+    let (dir, _temp) = unique_artifact_dir();
+    let image_dir = dir.join("media");
+    fs::create_dir_all(&image_dir).expect("create image fixture directory");
+    let base_image = image_dir.join("source.png");
+    ffmpeg(&[
+        "-f",
+        "lavfi",
+        "-i",
+        "color=c=blue:s=32x18:d=1",
+        "-frames:v",
+        "1",
+        base_image.to_str().unwrap(),
+    ])
+    .expect("generate large graph source image");
+    let music = dir.join("music.wav");
+    ffmpeg(&[
+        "-f",
+        "lavfi",
+        "-i",
+        "sine=frequency=440:sample_rate=48000:duration=1",
+        "-c:a",
+        "pcm_s16le",
+        music.to_str().unwrap(),
+    ])
+    .expect("generate repeated music source");
+
+    let frame_ticks = TIMEBASE / 240;
+    let image_assets: Vec<_> = (0..72)
+        .map(|index| {
+            let name = format!("shot-{index:02}.png");
+            fs::copy(&base_image, image_dir.join(&name)).expect("copy image fixture");
+            json!({
+                "id":format!("image-{index}"),"kind":"image",
+                "path":format!("media/{name}"),"probe_status":"unprobed",
+                "duration_ticks":null,"sha256":null,"streams":[]
+            })
+        })
+        .collect();
+    let visual_clips: Vec<_> = (0..72)
+        .map(|index| json!({
+            "id":format!("visual-{index}"),"track_id":"visual","asset_id":format!("image-{index}"),
+            "kind":"image","start_tick":index*frame_ticks,"duration_ticks":frame_ticks,"source_in_tick":0
+        }))
+        .collect();
+    let audio_clips: Vec<_> = (0..104)
+        .map(|index| {
+            json!({
+                "id":format!("music-{index}"),"track_id":"music","asset_id":"music",
+                "kind":"audio","start_tick":index*frame_ticks,"duration_ticks":frame_ticks,
+                "source_in_tick":0,"stream_index":0,
+                "audio":{"domain_duration_ticks":frame_ticks,"sample_offset_tick":0,
+                    "gain_db":-12,"pan":0,"muted":false,"fade_in_ticks":0,"fade_out_ticks":0}
+            })
+        })
+        .collect();
+    let mut clips = visual_clips;
+    clips.extend(audio_clips);
+    let mut assets = image_assets;
+    assets.push(json!({
+        "id":"music","kind":"audio","path":"music.wav","probe_status":"unprobed",
+        "duration_ticks":null,"sha256":null,"streams":[]
+    }));
+    let value = json!({
+        "schema_version":"0.2.0-draft","project_id":"large-filter-graph","revision":1,
+        "name":"Large filter graph acceptance","timebase":TIMEBASE,
+        "canvas":{"width":160,"height":90,"fps":{"num":240,"den":1},
+            "background":"#000000","color_mode":"sdr_bt709"},
+        "audio_sample_rate":48000,"notes":[],"assets":assets,
+        "tracks":[
+            {"id":"visual","name":"Visual","kind":"image","enabled":true},
+            {"id":"music","name":"Music","kind":"audio","enabled":true}
+        ],
+        "clips":clips,"transitions":[],"links":[],"subtitles":[]
+    });
+    let output = dir.join("large-filter-graph.mp4");
+    let report = render(
+        &value,
+        &dir.join("project.storycut.json"),
+        &output,
+        &json!({
+            "range_start_tick":0,"range_end_tick":104*frame_ticks,
+            "subtitle_mode":"none","encoder":"h264_cpu","overwrite":false
+        }),
+    )
+    .expect("FFmpeg should render 72 visual and 104 repeated audio clip inputs");
+    assert_eq!(report.frame_count, 104);
+    assert_eq!(report.planned_audio_sample_count, 20_800);
+    assert!(output.is_file());
+    assert!(
+        fs::read_dir(&dir)
+            .expect("read fixture output directory")
+            .all(|entry| !entry
+                .expect("read fixture directory entry")
+                .file_name()
+                .to_string_lossy()
+                .ends_with(".filtergraph")),
+        "temporary filter graph must be removed after render"
+    );
+}
+
+#[test]
 fn audio_fade_curve_uses_clip_local_offset_for_partial_render_ranges() {
     if Command::new("ffmpeg").arg("-version").output().is_err()
         || Command::new("ffprobe").arg("-version").output().is_err()
@@ -766,6 +945,47 @@ fn audio_fade_curve_uses_clip_local_offset_for_partial_render_ranges() {
         );
     }
     eprintln!("REAL_AUDIO_RANGE_FADE_OUTPUT_DIR={}", dir.display());
+}
+
+#[test]
+fn full_domain_audio_fade_out_remains_audible_until_clip_end() {
+    if Command::new("ffmpeg").arg("-version").output().is_err()
+        || Command::new("ffprobe").arg("-version").output().is_err()
+    {
+        eprintln!("SKIP: ffmpeg and ffprobe are runtime requirements for audio fade acceptance");
+        return;
+    }
+    let (dir, _temp) = unique_artifact_dir();
+    let tone = dir.join("fade-tone.wav");
+    ffmpeg(&[
+        "-f",
+        "lavfi",
+        "-i",
+        "sine=frequency=440:sample_rate=48000:duration=1",
+        "-c:a",
+        "pcm_s16le",
+        tone.to_str().unwrap(),
+    ])
+    .expect("generate one-second fade source tone");
+
+    let project = audio_fade_project(TIMEBASE, 0, TIMEBASE);
+    let output = render_from_zero(&project, &dir, "audio-full-fade-out.mp4", TIMEBASE);
+    let pcm = decode_audio(&output);
+    assert!(
+        pcm.len() >= 48_000 * 2,
+        "decoded audio must cover the one-second clip"
+    );
+
+    let middle = rms(&pcm, 19_200, 28_800);
+    let tail = rms(&pcm, 40_800, 45_600);
+    assert!(
+        middle > 0.02,
+        "full-domain fade-out must retain audible signal mid-clip; RMS was {middle:.5}"
+    );
+    assert!(
+        tail > 0.002 && tail < middle * 0.35,
+        "fade-out must remain audible before reaching silence at the end; middle RMS {middle:.5}, tail RMS {tail:.5}"
+    );
 }
 
 #[test]

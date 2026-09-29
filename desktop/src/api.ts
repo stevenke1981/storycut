@@ -18,6 +18,7 @@ function hasTauriRuntime() {
 export class StoryCutApi {
   readonly mode: BackendMode;
   private workspace: string | null = null;
+  private readonly thumbnailCache = new Map<string, Promise<AssetThumbnail>>();
 
   constructor() {
     this.mode = hasTauriRuntime() ? "tauri" : "unavailable";
@@ -82,9 +83,38 @@ export class StoryCutApi {
     return await invoke("storycut_read_preview", { jobId, artifactId });
   }
 
+  async readAssetThumbnail(projectId: string, asset: Asset): Promise<AssetThumbnail> {
+    if (!hasTauriRuntime()) throw this.unavailable("素材縮圖只能由 StoryCut 桌面核心讀取。");
+    if (asset.kind !== "image") throw this.unavailable("目前只有已選取的圖片素材可產生縮圖。");
+    const key = [this.workspace ?? "", projectId, asset.id, asset.sha256 ?? ""].join("\u0000");
+    const cached = this.thumbnailCache.get(key);
+    if (cached) return cached;
+    const pending = invoke<AssetThumbnail>("storycut_read_asset_thumbnail", { projectId, assetId: asset.id })
+      .then((thumbnail) => {
+        if (thumbnail.asset_id !== asset.id || thumbnail.mime_type !== "image/png" || !thumbnail.data_url.startsWith("data:image/png;base64,")) {
+          throw new Error("核心縮圖 bridge 回傳了不完整或非 PNG 資料。");
+        }
+        return thumbnail;
+      })
+      .catch((error) => {
+        this.thumbnailCache.delete(key);
+        throw error;
+      });
+    this.thumbnailCache.set(key, pending);
+    return pending;
+  }
+
   private unavailable(message: string) {
     return new StoryCutApiError({ code: "UNSUPPORTED_FEATURE", message, retryable: false, details: {} });
   }
+}
+
+export interface AssetThumbnail {
+  asset_id: string;
+  mime_type: "image/png";
+  data_url: string;
+  width: number;
+  height: number;
 }
 
 function isWithinWorkspace(path: string, workspace: string | null) {

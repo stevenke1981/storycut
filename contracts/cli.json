@@ -55,6 +55,11 @@
       "input_contract": "contracts/mcp-tools.json#storycut_timeline_apply"
     },
     {
+      "tool": "storycut_storyboard_assemble",
+      "alias": "storyboard assemble",
+      "input_contract": "contracts/mcp-tools.json#storycut_storyboard_assemble"
+    },
+    {
       "tool": "storycut_track_add",
       "alias": "track add",
       "input_contract": "contracts/mcp-tools.json#storycut_track_add"
@@ -93,6 +98,11 @@
       "tool": "storycut_motion_set",
       "alias": "motion set",
       "input_contract": "contracts/mcp-tools.json#storycut_motion_set"
+    },
+    {
+      "tool": "storycut_focal_motion_apply",
+      "alias": "focal motion apply",
+      "input_contract": "contracts/mcp-tools.json#storycut_focal_motion_apply"
     },
     {
       "tool": "storycut_audio_set",

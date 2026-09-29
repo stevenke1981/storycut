@@ -54,6 +54,10 @@ stderr 用於可安全公開的診斷；不輸出環境 token 或整個敏感路
 
 `retryable=true` 只表示處理原因後可再試，不代表安全無限重試。revision conflict 必須重讀規劃；重試同一已提交命令必須用相同冪等 key。
 
+## 大量圖片故事
+
+`storycut_storyboard_assemble` 與 `storycut_focal_motion_apply` 可用通用 `call ... --args-file` 入口操作。前者組裝有序畫面與分角色聲音，後者套用圖片焦點／平移／縮放；兩者都支援 `dry_run`、`expected_revision` 和 `idempotency_key`。欄位以 catalog 為準，完整使用方法見 [故事工作流程](STORY_WORKFLOW.md)。
+
 ## 安裝行為
 
 Windows 安裝器與可攜版的發行驗收狀態見 [實作紀錄](IMPLEMENTATION_STATUS.md)。開發建置需 Rust、Node、FFmpeg/ffprobe；可攜版啟動不需 Rust 或 Node，但媒體功能仍需 FFmpeg/ffprobe，詳見 [可攜版說明](PORTABLE_WINDOWS.md)。

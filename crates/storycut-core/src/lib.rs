@@ -6,7 +6,7 @@ mod transaction;
 mod validation;
 
 pub use model::*;
-pub use store::{ProjectStore, StoreError};
+pub use store::{PlannedApplyResult, ProjectStore, StoreError};
 pub use transaction::{
     ApplyResult, KeyframePolicy, Operation, OverlapResolution, RemoveMode, SubtitleEditMode,
     TrackChanges, Transaction,

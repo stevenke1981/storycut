@@ -8,8 +8,29 @@ use sha2::{Digest, Sha256};
 use tauri::State;
 use uuid::Uuid;
 
+mod media_thumbnail;
+
 struct SelectedWorkspace(Mutex<Option<PathBuf>>);
 const MAX_PREVIEW_BYTES: u64 = 128 * 1024 * 1024;
+
+#[tauri::command]
+async fn storycut_read_asset_thumbnail(
+    project_id: String,
+    asset_id: String,
+    state: State<'_, SelectedWorkspace>,
+) -> Result<Value, String> {
+    let workspace = state
+        .0
+        .lock()
+        .map_err(|_| "工作區狀態無法使用。".to_owned())?
+        .clone()
+        .ok_or_else(|| "請先開啟或建立專案。".to_owned())?;
+    tauri::async_runtime::spawn_blocking(move || {
+        media_thumbnail::read(&workspace, &project_id, &asset_id)
+    })
+    .await
+    .map_err(|error| format!("來源縮圖工作失敗：{error}"))?
+}
 
 #[tauri::command]
 fn storycut_set_workspace(path: String, state: State<'_, SelectedWorkspace>) -> Result<(), String> {
@@ -144,7 +165,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .manage(SelectedWorkspace(Mutex::new(None)))
-        .invoke_handler(tauri::generate_handler![storycut_set_workspace, storycut_dispatch, storycut_read_preview])
+        .invoke_handler(tauri::generate_handler![storycut_set_workspace, storycut_dispatch, storycut_read_preview, storycut_read_asset_thumbnail])
         .run(tauri::generate_context!())
         .expect("StoryCut desktop runtime failed");
 }

@@ -434,10 +434,14 @@ fn render_impl(
         return Err(RenderError::OutputExists(output));
     }
 
+    let required_asset_ids = render_asset_ids(&snapshot, range_start, range_end_tick)?;
     let base_dir = project_base_dir(project_path)?;
     let media_root = canonical_media_root(&base_dir, authorized_root)?;
     let mut assets = HashMap::new();
     for (id, asset) in &snapshot.assets {
+        if !required_asset_ids.contains(id) {
+            continue;
+        }
         let resolved = resolve_source(&base_dir, &asset.path, &media_root)?;
         if !resolved.is_file() {
             return Err(RenderError::InvalidProject(format!(
@@ -1298,6 +1302,112 @@ fn validate_transition_range(
     Ok(())
 }
 
+/// Collects only source assets that can contribute to the requested render
+/// range. Keep these predicates aligned with `build_video_inputs` and
+/// `build_audio_inputs`: unused and disabled media must not be opened merely
+/// because it is listed in the project.
+fn render_asset_ids(
+    project: &ProjectSnapshot,
+    range_start: u64,
+    range_end: u64,
+) -> Result<HashSet<String>, RenderError> {
+    let tracks: HashMap<_, _> = project
+        .tracks
+        .iter()
+        .map(|track| (track.id.as_str(), track))
+        .collect();
+    let mut asset_ids = HashSet::new();
+
+    for clip in project
+        .clips
+        .iter()
+        .filter(|clip| clip.kind == "image" || clip.kind == "video")
+    {
+        let track = tracks.get(clip.track_id.as_str()).ok_or_else(|| {
+            RenderError::InvalidProject(format!(
+                "clip {} refers to missing track {}",
+                clip.id, clip.track_id
+            ))
+        })?;
+        if !track.enabled || (track.kind != "video" && track.kind != "image") {
+            continue;
+        }
+        let clip_end = clip.start.checked_add(clip.duration).ok_or_else(|| {
+            RenderError::InvalidProject(format!("clip {} end tick overflow", clip.id))
+        })?;
+        if clip.start.max(range_start) >= clip_end.min(range_end) {
+            continue;
+        }
+        let motion = clip
+            .motion
+            .clone()
+            .unwrap_or_else(|| default_motion(clip.duration, project.frame_ticks));
+        if !motion.all_opacity_zero() {
+            asset_ids.insert(clip.asset_id.clone());
+        }
+    }
+
+    let solo = project
+        .tracks
+        .iter()
+        .any(|track| track.kind == "audio" && track.enabled && track.solo);
+    for clip in project.clips.iter().filter(|clip| clip.kind == "audio") {
+        let track = tracks.get(clip.track_id.as_str()).ok_or_else(|| {
+            RenderError::InvalidProject(format!(
+                "clip {} refers to missing track {}",
+                clip.id, clip.track_id
+            ))
+        })?;
+        if track.kind != "audio" || !track.enabled || track.muted || (solo && !track.solo) {
+            continue;
+        }
+        let settings = clip.audio.as_ref().ok_or_else(|| {
+            RenderError::InvalidProject(format!("audio clip {} has no audio settings", clip.id))
+        })?;
+        if settings.muted {
+            continue;
+        }
+        if settings.sample_offset > settings.domain_duration
+            || settings.fade_in > settings.domain_duration
+            || settings.fade_out > settings.domain_duration
+        {
+            return Err(RenderError::InvalidProject(format!(
+                "audio clip {} has invalid envelope domain",
+                clip.id
+            )));
+        }
+        let clip_end = clip.start.checked_add(clip.duration).ok_or_else(|| {
+            RenderError::InvalidProject(format!("audio clip {} end tick overflow", clip.id))
+        })?;
+        let visible_start = clip.start.max(range_start);
+        let visible_end = clip_end.min(range_end);
+        if visible_start >= visible_end {
+            continue;
+        }
+        let sample_offset = settings
+            .sample_offset
+            .checked_add(visible_start - clip.start)
+            .ok_or_else(|| {
+                RenderError::InvalidProject(format!(
+                    "audio clip {} envelope sample offset overflow",
+                    clip.id
+                ))
+            })?;
+        if sample_offset
+            .checked_add(visible_end - visible_start)
+            .is_none_or(|end| end > settings.domain_duration)
+        {
+            return Err(RenderError::InvalidProject(format!(
+                "audio clip {} visible range exceeds its envelope domain",
+                clip.id
+            )));
+        }
+        asset_ids.insert(clip.asset_id.clone());
+    }
+
+    Ok(asset_ids)
+}
+
 fn build_video_inputs(
     project: &ProjectSnapshot,
     assets: &HashMap<String, (PathBuf, MediaFacts)>,
@@ -1343,12 +1453,6 @@ fn build_video_inputs(
         if visible_start >= visible_end {
             continue;
         }
-        let (path, facts) = assets.get(&clip.asset_id).ok_or_else(|| {
-            RenderError::InvalidProject(format!(
-                "clip {} refers to missing asset {}",
-                clip.id, clip.asset_id
-            ))
-        })?;
         let motion = clip
             .motion
             .clone()
@@ -1356,6 +1460,12 @@ fn build_video_inputs(
         if motion.all_opacity_zero() {
             continue;
         }
+        let (path, facts) = assets.get(&clip.asset_id).ok_or_else(|| {
+            RenderError::InvalidProject(format!(
+                "clip {} refers to missing asset {}",
+                clip.id, clip.asset_id
+            ))
+        })?;
         let expected_stream_kind = if clip.kind == "image" {
             "video"
         } else {
@@ -1710,6 +1820,8 @@ fn run_render(
                 fps_string(project).into(),
                 "-t".into(),
                 ticks_to_seconds(spec.duration),
+                "-threads:v".into(),
+                "1".into(),
                 "-i".into(),
                 spec.path.to_string_lossy().into_owned(),
             ]);
@@ -1719,6 +1831,8 @@ fn run_render(
                 ticks_to_seconds(spec.source_in),
                 "-t".into(),
                 ticks_to_seconds(spec.duration),
+                "-threads:v".into(),
+                "1".into(),
                 "-i".into(),
                 spec.path.to_string_lossy().into_owned(),
             ]);
@@ -1732,6 +1846,8 @@ fn run_render(
             ticks_to_seconds(spec.source_in),
             "-t".into(),
             ticks_to_seconds(spec.duration),
+            "-threads:a".into(),
+            "1".into(),
             "-i".into(),
             spec.path.to_string_lossy().into_owned(),
         ]);
@@ -1899,7 +2015,7 @@ fn run_render(
         let gain = db_to_linear(settings.gain_db + track.gain_db);
         let offset = ticks_to_seconds(settings.sample_offset);
         let fade_in = ticks_to_seconds(settings.fade_in);
-        let fade_out_start = ticks_to_seconds(total_domain.saturating_sub(settings.fade_out));
+        let total_domain_seconds = ticks_to_seconds(total_domain);
         let fade_out = ticks_to_seconds(settings.fade_out);
         let pan_left = (1.0 - settings.pan).clamp(0.0, 2.0);
         let pan_right = (1.0 + settings.pan).clamp(0.0, 2.0);
@@ -1909,7 +2025,7 @@ fn run_render(
         }
         if settings.fade_out > 0 {
             volume_expr.push_str(&format!(
-                "*min(1,max(0,({fade_out_start}-t-{offset})/{fade_out}))"
+                "*min(1,max(0,({total_domain_seconds}-t-{offset})/{fade_out}))"
             ));
         }
         let delayed = *start_sample;
@@ -1931,9 +2047,21 @@ fn run_render(
             audio_labels.join(""), audio_labels.len()
         ));
     }
+    let (filter_script_path, mut filter_script) =
+        create_temporary_filter_script(output.parent().unwrap_or_else(|| Path::new(".")))?;
+    let _filter_script_guard = TempArtifact(filter_script_path.clone());
+    filter_script.write_all(graph.join(";").as_bytes())?;
+    drop(filter_script);
+    let filter_script_name = filter_script_path
+        .file_name()
+        .and_then(OsStr::to_str)
+        .ok_or_else(|| {
+            RenderError::InvalidOptions("temporary filter graph filename is not UTF-8".into())
+        })?;
+
     args.extend([
-        "-filter_complex".into(),
-        graph.join(";"),
+        "-filter_complex_script".into(),
+        filter_script_name.to_owned(),
         "-map".into(),
         format!("[{video_label}]"),
         "-map".into(),
@@ -2546,6 +2674,24 @@ fn create_temporary_output(
     }
     Err(RenderError::InvalidOptions(
         "could not allocate a unique temporary render path".into(),
+    ))
+}
+
+fn create_temporary_filter_script(parent: &Path) -> Result<(PathBuf, File), RenderError> {
+    for _ in 0..100 {
+        let serial = TEMP_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+        let path = parent.join(format!(
+            ".storycut-{}-{serial}.filtergraph",
+            std::process::id()
+        ));
+        match OpenOptions::new().write(true).create_new(true).open(&path) {
+            Ok(file) => return Ok((path, file)),
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(error) => return Err(RenderError::Io(error)),
+        }
+    }
+    Err(RenderError::InvalidOptions(
+        "could not allocate a unique temporary filter graph".into(),
     ))
 }
 

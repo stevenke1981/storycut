@@ -23,13 +23,26 @@ class ContractTests(unittest.TestCase):
 
     def test_package_schemas_and_examples(self):
         report = validate_package()
-        self.assertEqual(report['tool_contracts'], 33)
+        self.assertEqual(report['tool_contracts'], 35)
         self.assertEqual(report['atomic_operation_types'], 19)
 
     def test_multitrack_28_seconds(self):
         self.assertFalse(validate_model(self.p))
         self.assertEqual(duration_ticks(self.p), 28 * TPS)
         self.assertEqual(render_duration_ticks(self.p) // frame_ticks(self.p), 840)
+
+    def test_story_workflow_schema_rejects_unsafe_or_wrong_typed_inputs(self):
+        for name, filename, patch in [
+            ('storycut_storyboard_assemble', 'storyboard-assemble.dry-run.json', {'audio_tracks': 'music'}),
+            ('storycut_storyboard_assemble', 'storyboard-assemble.dry-run.json', {'items': []}),
+            ('storycut_focal_motion_apply', 'focal-motion-apply.dry-run.json', {'from_scale': 0.9}),
+            ('storycut_focal_motion_apply', 'focal-motion-apply.dry-run.json', {'preset': 1}),
+            ('storycut_focal_motion_apply', 'focal-motion-apply.dry-run.json', {'targets': [{'clip_id': 'clip-a', 'focus': {'x': 1.1, 'y': 0.5}}]}),
+        ]:
+            with self.subTest(tool=name, patch=patch):
+                request = load('examples/' + filename)
+                request.update(patch)
+                self.assertTrue(schema_errors(request, self.tools[name]['inputSchema']))
 
     def test_two_images_still_19_seconds(self):
         p = load('examples/two-images.storycut.json')

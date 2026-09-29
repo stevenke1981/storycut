@@ -19,6 +19,8 @@
     }
   },
   "input_examples": {
+    "storyboard-assemble.dry-run.json": "storycut_storyboard_assemble",
+    "focal-motion-apply.dry-run.json": "storycut_focal_motion_apply",
     "timeline-apply.dry-run.json": "storycut_timeline_apply",
     "timeline-apply.commit.json": "storycut_timeline_apply",
     "subtitle-import.json": "storycut_subtitle_import",
@@ -29,6 +31,6 @@
     "render-start.response.json": "storycut_render_start",
     "revision-conflict.response.json": "storycut_timeline_apply"
   },
-  "tool_count": 33,
+  "tool_count": 35,
   "operation_count": 19
 }

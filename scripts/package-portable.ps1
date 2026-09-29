@@ -23,6 +23,8 @@ $files = @(
     @{ Source = (Join-Path $repoRoot 'docs/PORTABLE_WINDOWS.md'); Entry = 'README-portable.md' },
     @{ Source = (Join-Path $repoRoot 'docs/CLI.md'); Entry = 'docs/CLI.md' },
     @{ Source = (Join-Path $repoRoot 'docs/MCP.md'); Entry = 'docs/MCP.md' },
+    @{ Source = (Join-Path $repoRoot 'docs/STORY_WORKFLOW.md'); Entry = 'docs/STORY_WORKFLOW.md' },
+    @{ Source = (Join-Path $repoRoot 'contracts/mcp-tools.json'); Entry = 'contracts/mcp-tools.json' },
     @{ Source = (Join-Path $repoRoot 'docs/IMPLEMENTATION_STATUS.md'); Entry = 'docs/IMPLEMENTATION_STATUS.md' },
     @{ Source = (Join-Path $repoRoot 'docs/LICENSE_INVENTORY.md'); Entry = 'docs/LICENSE_INVENTORY.md' },
     @{ Source = (Join-Path $repoRoot 'LICENSE'); Entry = 'LICENSE' }

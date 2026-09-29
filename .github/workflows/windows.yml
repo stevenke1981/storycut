@@ -39,6 +39,8 @@ jobs:
         run: cargo build --release -p storycut-cli --locked
       - name: CLI real audio offset acceptance
         run: python -X utf8 tests/product_acceptance/audio_offset.py
+      - name: Story assembly, MCP motion and real 72-image render
+        run: python -X utf8 tests/product_acceptance/story_workflow.py
       - name: Desktop executable
         working-directory: desktop
         run: npm run tauri build -- --no-bundle

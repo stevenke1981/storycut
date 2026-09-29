@@ -1,0 +1,13 @@
+{
+  "project_id": "demo-multitrack",
+  "expected_revision": 8,
+  "idempotency_key": "focal-motion-preview-example",
+  "dry_run": true,
+  "preset": "focus_zoom",
+  "from_scale": 1,
+  "to_scale": 1.2,
+  "targets": [
+    { "clip_id": "clip-a", "focus": { "x": 0.62, "y": 0.38 } },
+    { "clip_id": "clip-c", "focus": { "x": 0.5, "y": 0.5 } }
+  ]
+}
