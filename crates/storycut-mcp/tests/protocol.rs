@@ -466,3 +466,128 @@ fn preview_png_path_traversal_is_denied() {
     assert_eq!(response["result"]["content"].as_array().unwrap().len(), 1);
     finish(client, server);
 }
+
+fn narration_assemble_ok_response() -> Value {
+    json!({
+        "ok": true,
+        "data": {
+            "committed": true,
+            "base_revision": 7,
+            "changed_ids": ["track-visual-01", "track-narration-01"],
+            "duration_ticks": 40000000,
+            "created_track_ids": ["track-visual-01", "track-narration-01", "track-music-01"],
+            "visual_track_id": "track-visual-01",
+            "narration_track_id": "track-narration-01",
+            "music_track_id": "track-music-01",
+            "overlay_track_id": null,
+            "frame_ticks": 1333333,
+            "dissolve_window_ticks": 0,
+            "lead_in_ticks": 2000000,
+            "narration_end_tick": 38000000,
+            "total_duration_ticks": 40000000,
+            "segment_offsets": [
+                {
+                    "index": 0,
+                    "asset_id": "asset-abc123",
+                    "clip_id": "clip-abc123",
+                    "start_tick": 0,
+                    "duration_ticks": 20000000,
+                    "start_seconds": 0.0
+                },
+                {
+                    "index": 1,
+                    "asset_id": "asset-def456",
+                    "clip_id": "clip-def456",
+                    "start_tick": 20000000,
+                    "duration_ticks": 20000000,
+                    "start_seconds": 20.0
+                }
+            ],
+            "cuts": [
+                {
+                    "role": "visual",
+                    "clip_id": "clip-abc123",
+                    "asset_id": "asset-abc123",
+                    "cut_in_tick": 0,
+                    "cut_out_tick": 20000000,
+                    "clip_start_tick": 0,
+                    "clip_duration_ticks": 20000000
+                }
+            ],
+            "native_cores": [
+                {
+                    "clip_id": "clip-abc123",
+                    "asset_id": "asset-abc123",
+                    "core_start_tick": 1000000,
+                    "core_end_tick": 19000000
+                }
+            ]
+        },
+        "error": null,
+        "warnings": []
+    })
+}
+
+#[test]
+fn narration_assemble_output_matches_schema() {
+    // Positive case: all required fields present in structuredContent
+    let ok_response = narration_assemble_ok_response();
+    let (client, server) = start_server_with(move |_, _, _| Ok(ok_response.clone()));
+    initialized_client(&client);
+    client.send_value(&json!({
+        "jsonrpc": "2.0",
+        "id": 2,
+        "method": "tools/call",
+        "params": {
+            "name": "storycut_narration_assemble",
+            "arguments": {
+                "workspace": "C:/storycut-protocol-test",
+                "revision": 7,
+                "segments": [{"asset_id": "asset-abc123", "trim_start_seconds": 0.0, "duration_seconds": 20.0}],
+                "narration_track_name": "Narration",
+                "visual_track_name": "Visual"
+            }
+        }
+    }));
+    let response = client.receive();
+    assert_eq!(
+        response["result"]["isError"], false,
+        "narration_assemble should succeed: {:?}", response
+    );
+    let sc = &response["result"]["structuredContent"];
+    assert_eq!(sc["ok"], true);
+    let data = &sc["data"];
+    assert!(data.get("segment_offsets").is_some(), "missing segment_offsets");
+    assert_eq!(data["segment_offsets"].as_array().unwrap().len(), 2);
+    assert!(data.get("cuts").is_some(), "missing cuts");
+    assert_eq!(data["cuts"].as_array().unwrap().len(), 1);
+    assert!(data.get("native_cores").is_some(), "missing native_cores");
+    assert_eq!(data["native_cores"].as_array().unwrap().len(), 1);
+    assert!(data.get("visual_track_id").is_some(), "missing visual_track_id");
+    assert_eq!(data["visual_track_id"], "track-visual-01");
+    assert!(data.get("narration_track_id").is_some(), "missing narration_track_id");
+    assert_eq!(data["narration_track_id"], "track-narration-01");
+    assert!(data.get("frame_ticks").is_some(), "missing frame_ticks");
+    assert_eq!(data["frame_ticks"], 1333333);
+    assert!(data.get("dissolve_window_ticks").is_some(), "missing dissolve_window_ticks");
+    assert!(data.get("lead_in_ticks").is_some(), "missing lead_in_ticks");
+    assert!(data.get("narration_end_tick").is_some(), "missing narration_end_tick");
+    assert!(data.get("total_duration_ticks").is_some(), "missing total_duration_ticks");
+    assert!(data.get("music_track_id").is_some(), "missing music_track_id");
+    assert!(data.get("overlay_track_id").is_some(), "missing overlay_track_id");
+    assert!(data["overlay_track_id"].is_null(), "overlay_track_id should be null");
+    assert!(data.get("created_track_ids").is_some(), "missing created_track_ids");
+    assert_eq!(data["created_track_ids"].as_array().unwrap().len(), 3);
+    finish(client, server);
+
+    // Negative case: verify a fixture without narration_end_tick truly lacks that field
+    let mut bad_response = narration_assemble_ok_response();
+    bad_response["data"]
+        .as_object_mut()
+        .unwrap()
+        .remove("narration_end_tick");
+    assert!(
+        bad_response["data"].get("narration_end_tick").is_none(),
+        "narration_end_tick must be absent from the bad fixture"
+    );
+}

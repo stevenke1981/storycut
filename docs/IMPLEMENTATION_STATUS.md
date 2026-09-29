@@ -10,6 +10,13 @@
 - 驗證：`cargo test --workspace` 全過（含新增 render 5、core 2、command 2 項）；Python 契約 59/59；`tests/product_acceptance/night_lantern.py` 真 CLI PASS，報告於 `target/night-lantern-acceptance/run-*/夜燈說書/report.json`。
 - 未做：桌面 GUI 尚無旁白組裝面板（CLI／MCP 可用）；把手片段的修剪／分割；ASS 與其他字幕文件同時燒錄；GPU 編碼。合成素材驗收不等於正式 YouTube 成片驗收。
 
+## 2026-09-30：NL-01 storycut_narration_assemble outputSchema 修正
+
+- 問題：`storycut_narration_assemble` 的 `outputSchema` 是從 `storycut_storyboard_assemble` 複製而來，`data` 的 properties／required 與 `narration_assemble()` 實際回傳不符（含 `plan()` 的 `segment_offsets`、`cuts`、`native_cores`、`visual_track_id`、`narration_track_id`、`frame_ticks`、`dissolve_window_ticks`、`lead_in_ticks`、`narration_end_tick`、`total_duration_ticks`、`created_track_ids`，以及 `narration_assemble()` 加的 `committed`、`base_revision`、`changed_ids`、`duration_ticks`）。
+- 修正：重寫 `contracts/mcp-tools.json` 中 `storycut_narration_assemble` 的 `outputSchema.allOf[0].then.properties.data`：properties 改為上述所有實際欄位；`required` 列出所有非 nullable 欄位；nullable track ID（`music_track_id`、`overlay_track_id`）用 `anyOf[string, null]`、不放入 required；`additionalProperties` 改為 `true`（plan 回傳可能附帶額外欄位）。
+- 測試：在 `crates/storycut-mcp/tests/protocol.rs` 新增 `narration_assemble_output_matches_schema`：正向範例以假 dispatch 回傳含所有必填欄位的 response，確認 `structuredContent.data` 的各欄位存在且型別正確；負向範例確認缺少 `narration_end_tick` 的 fixture 確實沒有該欄位。
+- 驗收：`cargo test -p storycut-mcp protocol` 新測試通過；`python -X utf8 tools/validate_spec.py` 通過。
+
 ## 2026-09-27：夜燈說書工作流程
 
 本節是本次新增功能的驗收；下方 2026-09-24 紀錄保留為既有基線。
