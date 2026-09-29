@@ -469,7 +469,11 @@ fn preview_png_path_traversal_is_denied() {
 
 fn narration_assemble_ok_response() -> Value {
     json!({
+        "api_version": "0.2.0",
         "ok": true,
+        "request_id": "narration-assemble-test",
+        "project_id": "protocol-test-project",
+        "revision": 8,
         "data": {
             "committed": true,
             "base_revision": 7,
@@ -541,11 +545,15 @@ fn narration_assemble_output_matches_schema() {
         "params": {
             "name": "storycut_narration_assemble",
             "arguments": {
-                "workspace": "C:/storycut-protocol-test",
-                "revision": 7,
-                "segments": [{"asset_id": "asset-abc123", "trim_start_seconds": 0.0, "duration_seconds": 20.0}],
-                "narration_track_name": "Narration",
-                "visual_track_name": "Visual"
+                "project_id": "protocol-test-project",
+                "expected_revision": 7,
+                "idempotency_key": "idem-key-protocol-test-01",
+                "dry_run": false,
+                "narration": {
+                    "track_name": "Narration",
+                    "segments": [{"asset_id": "asset-narration-01"}]
+                },
+                "shots": [{"asset_id": "asset-abc123", "segments": [0, 1]}]
             }
         }
     }));
