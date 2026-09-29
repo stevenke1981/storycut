@@ -922,23 +922,35 @@ struct LoudnessPlan {
 }
 
 impl LoudnessPlan {
+    /// Linear gain to the target integrated loudness. When that gain would push
+    /// the measured true peak over the ceiling, a transparent-as-possible
+    /// limiter holds the ceiling (sample peak; noted in the report). FFmpeg's
+    /// own `loudnorm linear=true` silently switches to dynamic mode in that
+    /// case, which does not meet the explicit contract.
+    fn gain_db(&self) -> f64 {
+        self.target.integrated_lufs - self.measured_i
+    }
+
+    fn limited(&self) -> bool {
+        self.measured_tp + self.gain_db() > self.target.true_peak_db
+    }
+
     fn filter(&self) -> String {
-        format!(
-            "loudnorm=I={:.2}:TP={:.2}:LRA={:.2}:measured_I={:.2}:measured_TP={:.2}:measured_LRA={:.2}:measured_thresh={:.2}:offset={:.2}:linear=true:print_format=none",
-            self.target.integrated_lufs,
-            self.target.true_peak_db,
-            self.target.lra,
-            self.measured_i,
-            self.measured_tp,
-            self.measured_lra,
-            self.measured_thresh,
-            self.offset
-        )
+        let mut chain = format!("volume={:.4}dB", self.gain_db());
+        if self.limited() {
+            chain.push_str(&format!(
+                ",alimiter=limit={:.6}:attack=5:release=50:level=disabled",
+                10_f64.powf(self.target.true_peak_db / 20.0)
+            ));
+        }
+        chain
     }
 
     fn report(&self) -> Value {
         serde_json::json!({
-            "method": "ffmpeg loudnorm two-pass, linear",
+            "method": "two-pass: ebur128 measurement, then linear gain (+ sample-peak limiter when needed)",
+            "applied_gain_db": self.gain_db(),
+            "peak_limited": self.limited(),
             "target": {
                 "integrated_lufs": self.target.integrated_lufs,
                 "true_peak_db": self.target.true_peak_db,
@@ -996,7 +1008,12 @@ fn parse_options(value: &Value) -> Result<RenderOptions, RenderError> {
             })?;
             let true_peak_db = number(item, "true_peak_db")?.unwrap_or(-1.5);
             let lra = number(item, "lra")?.unwrap_or(11.0);
-            validate_finite_range("master_loudness.integrated_lufs", integrated_lufs, -70.0, -5.0)?;
+            validate_finite_range(
+                "master_loudness.integrated_lufs",
+                integrated_lufs,
+                -70.0,
+                -5.0,
+            )?;
             validate_finite_range("master_loudness.true_peak_db", true_peak_db, -9.0, 0.0)?;
             validate_finite_range("master_loudness.lra", lra, 1.0, 50.0)?;
             Some(LoudnessTarget {
@@ -1833,10 +1850,9 @@ fn hold_read_window(
     } else {
         (span - frame_ticks, frame_ticks, 0)
     };
-    let source_in = clip
-        .source_in
-        .checked_add(read_in)
-        .ok_or_else(|| RenderError::InvalidProject(format!("clip {} source offset overflow", clip.id)))?;
+    let source_in = clip.source_in.checked_add(read_in).ok_or_else(|| {
+        RenderError::InvalidProject(format!("clip {} source offset overflow", clip.id))
+    })?;
     Ok((source_in, read_len, Some(HoldPlan { start_pad, window })))
 }
 
@@ -2029,14 +2045,20 @@ fn prepare_styled_subtitles(
     }
     let subtitle: storycut_core::Subtitle = serde_json::from_value(active[0].clone())
         .map_err(|error| RenderError::InvalidProject(format!("subtitle document: {error}")))?;
-    let export = storycut_subtitle::export_subtitle(&subtitle, subtitle.format)
-        .map_err(|error| RenderError::UnsupportedFeature(format!("styled subtitle burn: {error}")))?;
+    let export =
+        storycut_subtitle::export_subtitle(&subtitle, subtitle.format).map_err(|error| {
+            RenderError::UnsupportedFeature(format!("styled subtitle burn: {error}"))
+        })?;
     shift_ass_events(&export.content, range_start, range_end).map(Some)
 }
 
 /// Rewrites `Dialogue:` start/end fields (per the `[Events]` Format line) to be
 /// relative to `range_start`, dropping events outside the range.
-fn shift_ass_events(document: &str, range_start: u64, range_end: u64) -> Result<String, RenderError> {
+fn shift_ass_events(
+    document: &str,
+    range_start: u64,
+    range_end: u64,
+) -> Result<String, RenderError> {
     let mut output = String::with_capacity(document.len());
     let mut in_events = false;
     let mut start_index = 1_usize;
@@ -2098,8 +2120,14 @@ fn shift_ass_events(document: &str, range_start: u64, range_end: u64) -> Result<
 fn parse_ass_time(value: &str) -> Result<u64, RenderError> {
     let invalid = || RenderError::UnsupportedFeature(format!("invalid ASS time {value}"));
     let mut parts = value.trim().split(':');
-    let hours: u64 = parts.next().and_then(|v| v.parse().ok()).ok_or_else(invalid)?;
-    let minutes: u64 = parts.next().and_then(|v| v.parse().ok()).ok_or_else(invalid)?;
+    let hours: u64 = parts
+        .next()
+        .and_then(|v| v.parse().ok())
+        .ok_or_else(invalid)?;
+    let minutes: u64 = parts
+        .next()
+        .and_then(|v| v.parse().ok())
+        .ok_or_else(invalid)?;
     let seconds = parts.next().ok_or_else(invalid)?;
     let (whole, fraction) = seconds.split_once('.').unwrap_or((seconds, "0"));
     let whole: u64 = whole.parse().map_err(|_| invalid())?;
@@ -2511,10 +2539,9 @@ fn measure_loudness(
     }
     let mut graph = Vec::new();
     push_audio_graph(&mut graph, project, audio_inputs, &input_map, sample_count)?;
-    graph.push(format!(
-        "[aout]loudnorm=I={:.2}:TP={:.2}:LRA={:.2}:print_format=json[ameasure]",
-        target.integrated_lufs, target.true_peak_db, target.lra
-    ));
+    // ebur128 is FFmpeg's reference meter; loudnorm's in-graph `input_i`
+    // disagreed with it by >2 LU on ducked narration mixes.
+    graph.push("[aout]ebur128=peak=true:framelog=quiet[ameasure]".to_owned());
     let (script_path, mut script) = create_temporary_filter_script(work_dir)?;
     let _guard = TempArtifact(script_path.clone());
     script.write_all(graph.join(";").as_bytes())?;
@@ -2533,33 +2560,32 @@ fn measure_loudness(
         return Err(process_error("ffmpeg loudness measurement", result));
     }
     let stderr = String::from_utf8_lossy(&result.stderr);
-    let json_start = stderr.rfind('{').ok_or_else(|| {
-        RenderError::VerificationFailed("loudnorm measurement JSON was not printed".into())
-    })?;
-    let json_end = stderr[json_start..]
-        .find('}')
-        .map(|end| json_start + end + 1)
-        .ok_or_else(|| RenderError::VerificationFailed("loudnorm JSON is incomplete".into()))?;
-    let measured: Value = serde_json::from_str(&stderr[json_start..json_end])?;
-    let field = |name: &str| -> Result<f64, RenderError> {
-        measured
-            .get(name)
-            .and_then(Value::as_str)
-            .and_then(|value| value.trim().parse::<f64>().ok())
+    let summary = stderr
+        .rfind("Summary:")
+        .map(|index| &stderr[index..])
+        .ok_or_else(|| RenderError::VerificationFailed("ebur128 summary was not printed".into()))?;
+    let value_after = |label: &str| -> Result<f64, RenderError> {
+        summary
+            .lines()
+            .map(str::trim)
+            .find_map(|line| line.strip_prefix(label))
+            .and_then(|rest| rest.split_whitespace().next())
+            .and_then(|value| value.parse::<f64>().ok())
             .filter(|value| value.is_finite())
             .ok_or_else(|| {
                 RenderError::VerificationFailed(format!(
-                    "loudnorm measurement {name} is missing or not finite (silent mix?)"
+                    "ebur128 {label} is missing or not finite (silent mix?)"
                 ))
             })
     };
+    let measured_i = value_after("I:")?;
     Ok(LoudnessPlan {
         target,
-        measured_i: field("input_i")?,
-        measured_tp: field("input_tp")?,
-        measured_lra: field("input_lra")?,
-        measured_thresh: field("input_thresh")?,
-        offset: field("target_offset")?,
+        measured_i,
+        measured_tp: value_after("Peak:")?,
+        measured_lra: value_after("LRA:")?,
+        measured_thresh: value_after("Threshold:")?,
+        offset: target.integrated_lufs - measured_i,
     })
 }
 
@@ -2579,7 +2605,10 @@ fn apply_track_ducking(
         if !members.contains_key(track.id.as_str()) {
             order.push(track.id.as_str());
         }
-        members.entry(track.id.as_str()).or_default().push(label.as_str());
+        members
+            .entry(track.id.as_str())
+            .or_default()
+            .push(label.as_str());
     }
     let track_by_id: HashMap<&str, &Track> = tracks.iter().map(|t| (t.id.as_str(), t)).collect();
     let ducked: Vec<(&str, &Ducking)> = order
@@ -2597,7 +2626,9 @@ fn apply_track_ducking(
     }
     let mut sidechain_uses: HashMap<&str, usize> = HashMap::new();
     for (_, ducking) in &ducked {
-        *sidechain_uses.entry(ducking.source_track_id.as_str()).or_default() += 1;
+        *sidechain_uses
+            .entry(ducking.source_track_id.as_str())
+            .or_default() += 1;
     }
     let mut bus_label: HashMap<&str, String> = HashMap::new();
     let mut sidechain_labels: HashMap<&str, Vec<String>> = HashMap::new();
@@ -3835,13 +3866,19 @@ mod tests {
         let directory = tempfile::tempdir().unwrap();
         let output = directory.path().join("render.mp4");
 
-        let error = write_sidecar_with(directory.path(), &output, "full subtitle", "srt", |file, _| {
-            file.write_all(b"partial subtitle")?;
-            Err(std::io::Error::new(
-                std::io::ErrorKind::WriteZero,
-                "simulated write failure",
-            ))
-        })
+        let error = write_sidecar_with(
+            directory.path(),
+            &output,
+            "full subtitle",
+            "srt",
+            |file, _| {
+                file.write_all(b"partial subtitle")?;
+                Err(std::io::Error::new(
+                    std::io::ErrorKind::WriteZero,
+                    "simulated write failure",
+                ))
+            },
+        )
         .unwrap_err();
 
         assert_eq!(error.code(), "IO_ERROR");

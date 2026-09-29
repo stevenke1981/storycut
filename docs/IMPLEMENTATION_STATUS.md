@@ -1,5 +1,15 @@
 # StoryCut 實作與驗收紀錄
 
+## 2026-09-29：夜燈說書製作規格（Night Lantern profile）
+
+依 fish-s2pro-tts《偷桃》v1 實際成片流程補齊能力，規格見 [NIGHT_LANTERN_PROFILE.md](NIGHT_LANTERN_PROFILE.md)。
+
+- 核心：`VideoClip.hold_head_ticks`／`hold_tail_ticks` 凍格把手（有把手片段拒絕修剪／分割、不可連原聲）；`Track.ducking` 側鏈壓低（`track_update` 設定、`null` 清除；來源須為另一條未被壓低的音訊軌）。
+- 渲染：把手以 `tpad` clone 重建可見範圍（含範圍全落在把手內）；有 ducking 時改為分軌匯流排＋`sidechaincompress`，否則維持原線性單一 amix；`master_loudness` 兩段式（`ebur128` 量測→線性增益＋必要時峰值限制器）；ASS／SSA 經字幕核心匯出後依 offset／範圍改寫事件時間交給 libass。
+- 指令：新增 `storycut_narration_assemble`（MCP／CLI 共 32 項實作工具；契約 36 項）；`render_start`／`preview_range` 接受 `master_loudness`，render 回應附響度報告。
+- 驗證：`cargo test --workspace` 全過（含新增 render 5、core 2、command 2 項）；Python 契約 59/59；`tests/product_acceptance/night_lantern.py` 真 CLI PASS，報告於 `target/night-lantern-acceptance/run-*/夜燈說書/report.json`。
+- 未做：桌面 GUI 尚無旁白組裝面板（CLI／MCP 可用）；把手片段的修剪／分割；ASS 與其他字幕文件同時燒錄；GPU 編碼。合成素材驗收不等於正式 YouTube 成片驗收。
+
 ## 2026-09-27：夜燈說書工作流程
 
 本節是本次新增功能的驗收；下方 2026-09-24 紀錄保留為既有基線。

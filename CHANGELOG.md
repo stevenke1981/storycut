@@ -1,5 +1,12 @@
 # Changelog
 
+## 夜燈說書規格（Night Lantern profile）— 2026-09-29
+
+- 新增 `storycut_narration_assemble`：旁白段落決定畫面長度，原生影片凍格把手、不縮短片長的置中淡化、側鏈壓低配樂、alpha 串場字卡、回傳段落時間供字幕對時。
+- `VideoClip.hold_head_ticks`／`hold_tail_ticks`、`Track.ducking`（相容舊工程，預設不存在）。
+- 輸出選項 `master_loudness`（ebur128 兩段式、線性增益＋必要時峰值限制器）；ASS／SSA 樣式燒錄。
+- 真 FFmpeg 測試與 `tests/product_acceptance/night_lantern.py` 端到端驗收。見 docs/NIGHT_LANTERN_PROFILE.md。
+
 ## 規格 v0.2.0 — 2026-09-18
 
 - 將 CLI、MCP 及多層影音時間軸提升為第一個可用版本必備項。

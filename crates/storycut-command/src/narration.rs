@@ -8,16 +8,16 @@
 //! so their continuous core is never blended.
 
 use super::{
-    CommandError, core_error, floor_to_grid, generated_id, make_track, require_object_keys,
-    round_to_grid, seconds_value_to_ticks, semantic_identity, success, with_projection_warning,
-    field_bool, field_str, field_u64, command_to_core, finite_number, default_motion,
+    CommandError, command_to_core, core_error, default_motion, field_bool, field_str, field_u64,
+    finite_number, floor_to_grid, generated_id, make_track, require_object_keys, round_to_grid,
+    seconds_value_to_ticks, semantic_identity, success, with_projection_warning,
 };
 use serde_json::{Value, json};
 use std::path::Path;
 use storycut_core::{
     Asset, AssetKind, AudioClip, AudioSettings, Clip, CoreError, Ducking, ImageClip, MAX_TICKS,
-    Operation, Project, ProjectStore, StreamKind, TIMEBASE, TrackKind, Transition,
-    TransitionKind, VideoAudioPolicy, VideoClip,
+    Operation, Project, ProjectStore, StreamKind, TIMEBASE, TrackKind, Transition, TransitionKind,
+    VideoAudioPolicy, VideoClip,
 };
 
 const MAX_SEGMENTS: usize = 400;
@@ -59,7 +59,10 @@ pub(crate) fn narration_assemble(workspace: &Path, args: &Value) -> Result<Value
     data.insert("committed".into(), json!(planned.result.applied));
     data.insert("base_revision".into(), json!(planned.result.base_revision));
     data.insert("changed_ids".into(), json!(planned.result.changed_ids));
-    data.insert("duration_ticks".into(), json!(planned.result.duration_ticks));
+    data.insert(
+        "duration_ticks".into(),
+        json!(planned.result.duration_ticks),
+    );
     Ok(with_projection_warning(
         success(
             Some(project_id),
@@ -91,7 +94,11 @@ fn stream_index(asset: &Asset, kind: StreamKind) -> Result<u64, CoreError> {
         .ok_or_else(|| fail(format!("asset {} has no {kind:?} stream", asset.id)))
 }
 
-fn optional_seconds(value: Option<&Value>, field: &str, allow_zero: bool) -> Result<Option<u64>, CoreError> {
+fn optional_seconds(
+    value: Option<&Value>,
+    field: &str,
+    allow_zero: bool,
+) -> Result<Option<u64>, CoreError> {
     value
         .filter(|value| !value.is_null())
         .map(|value| seconds_value_to_ticks(value, field, allow_zero))
@@ -144,9 +151,13 @@ fn visual_from(
         .filter(|id| !id.is_empty())
         .ok_or_else(|| fail(format!("{context}.asset_id is required")))?;
     let asset = find_asset(project, asset_id)?;
-    let explicit_duration = optional_seconds(item.get("duration_seconds"), &format!("{context}.duration_seconds"), false)?
-        .map(|ticks| round_to_grid(ticks, frame))
-        .transpose()?;
+    let explicit_duration = optional_seconds(
+        item.get("duration_seconds"),
+        &format!("{context}.duration_seconds"),
+        false,
+    )?
+    .map(|ticks| round_to_grid(ticks, frame))
+    .transpose()?;
     match asset.kind {
         AssetKind::Image => {
             if item.get("source_in_seconds").is_some() {
@@ -170,10 +181,14 @@ fn visual_from(
             let natural = asset
                 .duration_ticks
                 .ok_or_else(|| fail(format!("video asset {asset_id} has no probed duration")))?;
-            let source_in = optional_seconds(item.get("source_in_seconds"), &format!("{context}.source_in_seconds"), true)?
-                .map(|ticks| round_to_grid(ticks, frame))
-                .transpose()?
-                .unwrap_or(0);
+            let source_in = optional_seconds(
+                item.get("source_in_seconds"),
+                &format!("{context}.source_in_seconds"),
+                true,
+            )?
+            .map(|ticks| round_to_grid(ticks, frame))
+            .transpose()?
+            .unwrap_or(0);
             let available = floor_to_grid(natural.saturating_sub(source_in), frame)?;
             let core = explicit_duration.unwrap_or(available);
             if core == 0 || core > available {
@@ -209,9 +224,16 @@ fn plan(project: &Project, args: &Value, key: &str) -> Result<(Vec<Operation>, V
     }
 
     // Transition: centered dissolve window W (even number of frames), half h.
-    let transition = args.get("transition").cloned().unwrap_or_else(|| json!({"mode":"cut"}));
+    let transition = args
+        .get("transition")
+        .cloned()
+        .unwrap_or_else(|| json!({"mode":"cut"}));
     require_object_keys(&transition, &["mode", "duration_seconds"]).map_err(command_to_core)?;
-    let window = match transition.get("mode").and_then(Value::as_str).unwrap_or("cut") {
+    let window = match transition
+        .get("mode")
+        .and_then(Value::as_str)
+        .unwrap_or("cut")
+    {
         "cut" => 0,
         "centered_dissolve" => {
             let requested = seconds_value_to_ticks(
@@ -225,7 +247,11 @@ fn plan(project: &Project, args: &Value, key: &str) -> Result<(Vec<Operation>, V
             }
             window
         }
-        other => return Err(fail(format!("transition.mode {other} must be cut or centered_dissolve"))),
+        other => {
+            return Err(fail(format!(
+                "transition.mode {other} must be cut or centered_dissolve"
+            )));
+        }
     };
     let half = window / 2;
 
@@ -243,10 +269,16 @@ fn plan(project: &Project, args: &Value, key: &str) -> Result<(Vec<Operation>, V
     let mut visuals: Vec<Visual> = Vec::new();
     let mut lead_in = 0_u64;
     if let Some(intro) = args.get("intro").filter(|v| !v.is_null()) {
-        require_object_keys(intro, &["asset_id", "source_in_seconds", "duration_seconds"]).map_err(command_to_core)?;
+        require_object_keys(
+            intro,
+            &["asset_id", "source_in_seconds", "duration_seconds"],
+        )
+        .map_err(command_to_core)?;
         let (mut visual, image_duration) = visual_from(project, intro, frame, "intro", "intro")?;
         let slot = match visual.kind {
-            AssetKind::Image => image_duration.ok_or_else(|| fail("intro image needs duration_seconds"))?,
+            AssetKind::Image => {
+                image_duration.ok_or_else(|| fail("intro image needs duration_seconds"))?
+            }
             _ => visual.core + half,
         };
         visual.cut_in = 0;
@@ -259,19 +291,30 @@ fn plan(project: &Project, args: &Value, key: &str) -> Result<(Vec<Operation>, V
     let narration = args
         .get("narration")
         .ok_or_else(|| fail("narration is required"))?;
-    require_object_keys(narration, &["track_name", "gap_seconds", "gain_db", "segments"]).map_err(command_to_core)?;
+    require_object_keys(
+        narration,
+        &["track_name", "gap_seconds", "gain_db", "segments"],
+    )
+    .map_err(command_to_core)?;
     let segments = narration
         .get("segments")
         .and_then(Value::as_array)
         .filter(|segments| !segments.is_empty() && segments.len() <= MAX_SEGMENTS)
-        .ok_or_else(|| fail(format!("narration.segments must contain 1 to {MAX_SEGMENTS} items")))?;
+        .ok_or_else(|| {
+            fail(format!(
+                "narration.segments must contain 1 to {MAX_SEGMENTS} items"
+            ))
+        })?;
     let gap = optional_seconds(narration.get("gap_seconds"), "narration.gap_seconds", true)?
         .map(|ticks| round_to_grid(ticks, sample))
         .transpose()?
         .unwrap_or(0);
     let lane_gain = gain(narration.get("gain_db"), "narration.gain_db")?;
     let narration_track = generated_id(project, key, "narration-voice-track", 0);
-    let track_name = narration.get("track_name").and_then(Value::as_str).unwrap_or("旁白");
+    let track_name = narration
+        .get("track_name")
+        .and_then(Value::as_str)
+        .unwrap_or("旁白");
     operations.push(Operation::TrackAdd {
         track: make_track(narration_track.clone(), track_name, TrackKind::Audio),
     });
@@ -321,7 +364,13 @@ fn plan(project: &Project, args: &Value, key: &str) -> Result<(Vec<Operation>, V
         }));
         cursor = cursor
             .checked_add(duration)
-            .and_then(|end| if index + 1 < segments.len() { end.checked_add(gap) } else { Some(end) })
+            .and_then(|end| {
+                if index + 1 < segments.len() {
+                    end.checked_add(gap)
+                } else {
+                    Some(end)
+                }
+            })
             .filter(|end| *end <= MAX_TICKS)
             .ok_or_else(|| fail("narration timeline overflows"))?;
     }
@@ -348,14 +397,27 @@ fn plan(project: &Project, args: &Value, key: &str) -> Result<(Vec<Operation>, V
     let mut aligns = Vec::new();
     for (index, shot) in shots.iter().enumerate() {
         let context = format!("shots[{index}]");
-        require_object_keys(shot, &["asset_id", "segments", "align", "source_in_seconds", "duration_seconds"])
-            .map_err(command_to_core)?;
+        require_object_keys(
+            shot,
+            &[
+                "asset_id",
+                "segments",
+                "align",
+                "source_in_seconds",
+                "duration_seconds",
+            ],
+        )
+        .map_err(command_to_core)?;
         let range = shot
             .get("segments")
             .and_then(Value::as_array)
             .filter(|range| range.len() == 2)
             .and_then(|range| Some((range[0].as_u64()? as usize, range[1].as_u64()? as usize)))
-            .ok_or_else(|| fail(format!("{context}.segments must be [first, last] segment indexes")))?;
+            .ok_or_else(|| {
+                fail(format!(
+                    "{context}.segments must be [first, last] segment indexes"
+                ))
+            })?;
         if range.0 != expected_first || range.1 < range.0 || range.1 >= segments.len() {
             return Err(fail(format!(
                 "{context}.segments must continue at segment {expected_first} and stay within the narration"
@@ -364,16 +426,25 @@ fn plan(project: &Project, args: &Value, key: &str) -> Result<(Vec<Operation>, V
         expected_first = range.1 + 1;
         let (mut visual, image_duration) = visual_from(project, shot, frame, "shot", &context)?;
         if visual.kind == AssetKind::Image && image_duration.is_some() {
-            return Err(fail(format!("{context}: image length follows its segments; remove duration_seconds")));
+            return Err(fail(format!(
+                "{context}: image length follows its segments; remove duration_seconds"
+            )));
         }
         visual.cut_in = boundaries[range.0];
         visual.cut_out = boundaries[range.1 + 1];
-        let align = shot.get("align").and_then(Value::as_str).unwrap_or("center");
+        let align = shot
+            .get("align")
+            .and_then(Value::as_str)
+            .unwrap_or("center");
         if !matches!(align, "start" | "center" | "end") {
-            return Err(fail(format!("{context}.align must be start, center or end")));
+            return Err(fail(format!(
+                "{context}.align must be start, center or end"
+            )));
         }
         if visual.kind == AssetKind::Image && shot.get("align").is_some() {
-            return Err(fail(format!("{context}: align applies to video shots only")));
+            return Err(fail(format!(
+                "{context}: align applies to video shots only"
+            )));
         }
         aligns.push(align);
         visuals.push(visual);
@@ -385,10 +456,16 @@ fn plan(project: &Project, args: &Value, key: &str) -> Result<(Vec<Operation>, V
 
     // ---- Outro -------------------------------------------------------------
     if let Some(outro) = args.get("outro").filter(|v| !v.is_null()) {
-        require_object_keys(outro, &["asset_id", "source_in_seconds", "duration_seconds"]).map_err(command_to_core)?;
+        require_object_keys(
+            outro,
+            &["asset_id", "source_in_seconds", "duration_seconds"],
+        )
+        .map_err(command_to_core)?;
         let (mut visual, image_duration) = visual_from(project, outro, frame, "outro", "outro")?;
         let slot = match visual.kind {
-            AssetKind::Image => image_duration.ok_or_else(|| fail("outro image needs duration_seconds"))?,
+            AssetKind::Image => {
+                image_duration.ok_or_else(|| fail("outro image needs duration_seconds"))?
+            }
             _ => visual.core + half,
         };
         visual.cut_in = boundaries[boundaries.len() - 1];
@@ -460,7 +537,11 @@ fn plan(project: &Project, args: &Value, key: &str) -> Result<(Vec<Operation>, V
 
     // Every picture needs visible frames of its own beyond the dissolves.
     for (index, visual) in visuals.iter().enumerate() {
-        let min = if visual.kind == AssetKind::Video { 1 } else { window.max(frame) };
+        let min = if visual.kind == AssetKind::Video {
+            1
+        } else {
+            window.max(frame)
+        };
         if visual.cut_out <= visual.cut_in || visual.cut_out - visual.cut_in < min {
             return Err(fail(format!(
                 "{} {} ({}) is too short after resolving native shots and dissolves",
@@ -542,7 +623,10 @@ fn plan(project: &Project, args: &Value, key: &str) -> Result<(Vec<Operation>, V
         }));
         clip_ids.push(clip_id);
     }
-    let total = visuals.last().map_or(narration_end, |visual| visual.cut_out).max(narration_end);
+    let total = visuals
+        .last()
+        .map_or(narration_end, |visual| visual.cut_out)
+        .max(narration_end);
 
     // ---- Music -------------------------------------------------------------
     let mut music_track = None;
@@ -551,7 +635,10 @@ fn plan(project: &Project, args: &Value, key: &str) -> Result<(Vec<Operation>, V
         let track_id = generated_id(project, key, "narration-music-track", 0);
         let mut track = make_track(
             track_id.clone(),
-            music.get("track_name").and_then(Value::as_str).unwrap_or("配樂"),
+            music
+                .get("track_name")
+                .and_then(Value::as_str)
+                .unwrap_or("配樂"),
             TrackKind::Audio,
         );
         track.ducking = match music.get("ducking") {
@@ -564,13 +651,18 @@ fn plan(project: &Project, args: &Value, key: &str) -> Result<(Vec<Operation>, V
                 release_ms: 500.0,
             }),
             Some(value) => {
-                require_object_keys(value, &["threshold", "ratio", "attack_ms", "release_ms"]).map_err(command_to_core)?;
+                require_object_keys(value, &["threshold", "ratio", "attack_ms", "release_ms"])
+                    .map_err(command_to_core)?;
                 Some(Ducking {
                     source_track_id: narration_track.clone(),
                     threshold: finite_number(value.get("threshold"), 0.015, "ducking.threshold")?,
                     ratio: finite_number(value.get("ratio"), 6.0, "ducking.ratio")?,
                     attack_ms: finite_number(value.get("attack_ms"), 30.0, "ducking.attack_ms")?,
-                    release_ms: finite_number(value.get("release_ms"), 500.0, "ducking.release_ms")?,
+                    release_ms: finite_number(
+                        value.get("release_ms"),
+                        500.0,
+                        "ducking.release_ms",
+                    )?,
                 })
             }
         };
@@ -586,7 +678,15 @@ fn plan(project: &Project, args: &Value, key: &str) -> Result<(Vec<Operation>, V
             let context = format!("music.cues[{index}]");
             require_object_keys(
                 cue,
-                &["asset_id", "start_seconds", "end_seconds", "source_in_seconds", "gain_db", "fade_in_seconds", "fade_out_seconds"],
+                &[
+                    "asset_id",
+                    "start_seconds",
+                    "end_seconds",
+                    "source_in_seconds",
+                    "gain_db",
+                    "fade_in_seconds",
+                    "fade_out_seconds",
+                ],
             )
             .map_err(command_to_core)?;
             let asset_id = cue
@@ -596,7 +696,11 @@ fn plan(project: &Project, args: &Value, key: &str) -> Result<(Vec<Operation>, V
             let asset = find_asset(project, asset_id)?;
             let stream = stream_index(asset, StreamKind::Audio)?;
             let start = round_to_grid(
-                seconds_value_to_ticks(cue.get("start_seconds").unwrap_or(&json!(0)), "start_seconds", true)?,
+                seconds_value_to_ticks(
+                    cue.get("start_seconds").unwrap_or(&json!(0)),
+                    "start_seconds",
+                    true,
+                )?,
                 sample,
             )?;
             let end = match optional_seconds(cue.get("end_seconds"), "end_seconds", false)? {
@@ -606,15 +710,19 @@ fn plan(project: &Project, args: &Value, key: &str) -> Result<(Vec<Operation>, V
             if end <= start {
                 return Err(fail(format!("{context} ends before it starts")));
             }
-            let source_in = optional_seconds(cue.get("source_in_seconds"), "source_in_seconds", true)?
-                .map(|ticks| round_to_grid(ticks, sample))
-                .transpose()?
-                .unwrap_or(0);
+            let source_in =
+                optional_seconds(cue.get("source_in_seconds"), "source_in_seconds", true)?
+                    .map(|ticks| round_to_grid(ticks, sample))
+                    .transpose()?
+                    .unwrap_or(0);
             let natural = asset
                 .duration_ticks
                 .ok_or_else(|| fail(format!("music asset {asset_id} has no probed duration")))?;
             let duration = end - start;
-            if source_in.checked_add(duration).is_none_or(|source_end| source_end > natural) {
+            if source_in
+                .checked_add(duration)
+                .is_none_or(|source_end| source_end > natural)
+            {
                 return Err(fail(format!(
                     "{context}: {asset_id} is shorter than the cue; split it into several cues"
                 )));
@@ -639,7 +747,12 @@ fn plan(project: &Project, args: &Value, key: &str) -> Result<(Vec<Operation>, V
                     duration_ticks: duration,
                     source_in_tick: source_in,
                     stream_index: stream,
-                    audio: audio_settings(duration, gain(cue.get("gain_db"), "music gain_db")?, fade_in, fade_out),
+                    audio: audio_settings(
+                        duration,
+                        gain(cue.get("gain_db"), "music gain_db")?,
+                        fade_in,
+                        fade_out,
+                    ),
                 }),
             });
         }
@@ -654,7 +767,10 @@ fn plan(project: &Project, args: &Value, key: &str) -> Result<(Vec<Operation>, V
         operations.push(Operation::TrackAdd {
             track: make_track(
                 track_id.clone(),
-                overlays.get("track_name").and_then(Value::as_str).unwrap_or("串場字卡"),
+                overlays
+                    .get("track_name")
+                    .and_then(Value::as_str)
+                    .unwrap_or("串場字卡"),
                 TrackKind::Video,
             ),
         });
@@ -667,8 +783,17 @@ fn plan(project: &Project, args: &Value, key: &str) -> Result<(Vec<Operation>, V
         let mut placed: Vec<(u64, u64)> = Vec::new();
         for (index, item) in items.iter().enumerate() {
             let context = format!("overlays.items[{index}]");
-            require_object_keys(item, &["asset_id", "segment", "offset_seconds", "at_seconds", "duration_seconds"])
-                .map_err(command_to_core)?;
+            require_object_keys(
+                item,
+                &[
+                    "asset_id",
+                    "segment",
+                    "offset_seconds",
+                    "at_seconds",
+                    "duration_seconds",
+                ],
+            )
+            .map_err(command_to_core)?;
             let (visual, image_duration) = visual_from(project, item, frame, "overlay", &context)?;
             let at = match (item.get("segment"), item.get("at_seconds")) {
                 (Some(segment), None) => {
@@ -677,15 +802,23 @@ fn plan(project: &Project, args: &Value, key: &str) -> Result<(Vec<Operation>, V
                         .map(|value| value as usize)
                         .filter(|value| *value < starts.len())
                         .ok_or_else(|| fail(format!("{context}.segment is out of range")))?;
-                    let offset = optional_seconds(item.get("offset_seconds"), "offset_seconds", true)?.unwrap_or(0);
+                    let offset =
+                        optional_seconds(item.get("offset_seconds"), "offset_seconds", true)?
+                            .unwrap_or(0);
                     starts[segment] + offset
                 }
                 (None, Some(at)) => seconds_value_to_ticks(at, "at_seconds", true)?,
-                _ => return Err(fail(format!("{context} needs exactly one of segment or at_seconds"))),
+                _ => {
+                    return Err(fail(format!(
+                        "{context} needs exactly one of segment or at_seconds"
+                    )));
+                }
             };
             let at = round_to_grid(at, frame)?;
             let duration = match visual.kind {
-                AssetKind::Image => image_duration.ok_or_else(|| fail(format!("{context}: image overlays need duration_seconds")))?,
+                AssetKind::Image => image_duration.ok_or_else(|| {
+                    fail(format!("{context}: image overlays need duration_seconds"))
+                })?,
                 _ => visual.core,
             };
             let end = at + duration;
@@ -765,7 +898,10 @@ mod tests {
         Stream {
             index: 0,
             kind,
-            time_base: Rational { num: 1, den: 48_000 },
+            time_base: Rational {
+                num: 1,
+                den: 48_000,
+            },
             sample_rate: (kind == StreamKind::Audio).then_some(48_000),
         }
     }
@@ -885,7 +1021,10 @@ mod tests {
             for transition in &project.transitions {
                 let t0 = transition.start_tick;
                 let t1 = t0 + transition.duration_ticks;
-                assert!(t1 <= a || t0 >= b, "dissolve {t0}..{t1} touches core {a}..{b}");
+                assert!(
+                    t1 <= a || t0 >= b,
+                    "dissolve {t0}..{t1} touches core {a}..{b}"
+                );
                 assert_eq!(transition.duration_ticks, 12 * FRAME);
             }
         }
@@ -916,7 +1055,10 @@ mod tests {
         );
         let music = project.tracks.iter().find(|t| t.name == "配樂").unwrap();
         let narration = project.tracks.iter().find(|t| t.name == "旁白").unwrap();
-        assert_eq!(music.ducking.as_ref().unwrap().source_track_id, narration.id);
+        assert_eq!(
+            music.ducking.as_ref().unwrap().source_track_id,
+            narration.id
+        );
 
         // Same key and payload replays without adding clips.
         let replay = dispatch(
@@ -926,7 +1068,10 @@ mod tests {
         )
         .unwrap();
         assert_eq!(replay["revision"], json!(2));
-        assert_eq!(load(dir.path(), &project_id).clips.len(), project.clips.len());
+        assert_eq!(
+            load(dir.path(), &project_id).clips.len(),
+            project.clips.len()
+        );
     }
 
     #[test]
@@ -939,7 +1084,11 @@ mod tests {
             {"asset_id":"img-b","segments":[3,4]}
         ]);
         let error = dispatch(dir.path(), "storycut_narration_assemble", gap).unwrap_err();
-        assert!(error.message.contains("continue at segment 2"), "{}", error.message);
+        assert!(
+            error.message.contains("continue at segment 2"),
+            "{}",
+            error.message
+        );
 
         let mut edge = request(&project_id, 1, false);
         edge["idempotency_key"] = json!("edge");

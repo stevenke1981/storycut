@@ -124,8 +124,9 @@ def main():
                  "-c:v", "libx264", "-pix_fmt", "yuv420p", work / name])
         # Alpha card: white box on transparent background, ProRes 4444.
         run(["ffmpeg", "-v", "error", "-f", "lavfi", "-i", f"color=c=black@0.0:s={W}x{H}:r=30:d=3,format=rgba",
-             "-vf", "drawbox=x=20:y=20:w=80:h=40:color=white@1:t=fill", "-c:v", "prores_ks", "-profile:v", "4444",
-             "-pix_fmt", "yuva444p10le", work / "章回卡.mov"])
+             "-f", "lavfi", "-i", "color=c=white:s=80x40:r=30:d=3,format=rgba",
+             "-filter_complex", "[0:v][1:v]overlay=20:20:format=auto,format=yuva444p10le[v]", "-map", "[v]",
+             "-c:v", "prores_ks", "-profile:v", "4444", "-pix_fmt", "yuva444p10le", work / "章回卡.mov"])
         seg_lengths = [3.1, 6.4, 7.9, 4.6, 8.2, 5.4]
         for i, seconds in enumerate(seg_lengths):
             tone(work / f"旁白-{i + 1:02}.wav", 1000, seconds, 12000)
@@ -229,11 +230,21 @@ def main():
         assert min(card) > 200, card
         sub_frame = round((seg2["start_tick"] + TIMEBASE * 0.75) / FRAME)
         no_sub_frame = round((seg2["start_tick"] + TIMEBASE * 1.7) / FRAME)
-        lit = mean_rgb(frame_rgb(output, sub_frame), (0, 100, W, 170))
-        dark = mean_rgb(frame_rgb(output, no_sub_frame), (0, 100, W, 170))
-        assert sum(lit) - sum(dark) > 60, (lit, dark)
+        def text_pixels(raw):
+            # White glyphs and near-black box pixels of the styled (BorderStyle 3) cue band.
+            white = black = 0
+            for y in range(100, 175):
+                for x in range(W):
+                    r, g, b = raw[(y * W + x) * 3:(y * W + x) * 3 + 3]
+                    white += r > 200 and g > 200 and b > 200
+                    black += r < 25 and g < 25 and b < 25
+            return white, black
+        with_cue = text_pixels(frame_rgb(output, sub_frame))
+        after_cue = text_pixels(frame_rgb(output, no_sub_frame))
+        assert with_cue[0] > 150 and with_cue[1] > 500, with_cue
+        assert after_cue == (0, 0), after_cue
         report["overlay_card_rgb"] = card
-        report["ass_band_rgb"] = {"with_cue": lit, "after_cue": dark}
+        report["ass_band_white_black_pixels"] = {"with_cue": with_cue, "after_cue": after_cue}
 
         # Ducking: music (220 Hz) is lower under narration than during the intro.
         pcm = run(["ffmpeg", "-v", "error", "-i", output, "-vn", "-ac", "1", "-ar", "48000", "-f", "s16le", "pipe:1"], binary=True).stdout
@@ -247,8 +258,9 @@ def main():
         assert voice > under_voice * 3, report["music_220hz"]
         lufs = integrated_lufs(output)
         report["integrated_lufs"] = lufs
+        report["render_master_loudness"] = rendered["data"].get("master_loudness")
         assert abs(lufs + 16) <= 1.0, lufs
-        report["render_master_loudness"] = rendered["data"]["job"].get("master_loudness")
+        report["render_master_loudness"] = rendered["data"].get("master_loudness")
 
         assert all(sha(Path(p)) == d for p, d in originals.items()), "source media changed"
         report["source_readonly"] = "PASS"

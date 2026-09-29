@@ -1053,7 +1053,10 @@ fn video_holds_extend_the_timeline_but_not_the_source_and_refuse_trim_split() {
             }],
         )
         .unwrap_err();
-    assert!(error.to_string().contains("exceeds source duration"), "{error}");
+    assert!(
+        error.to_string().contains("exceeds source duration"),
+        "{error}"
+    );
 
     let split = store
         .apply(
@@ -1124,21 +1127,45 @@ fn track_ducking_is_validated_set_and_cleared_through_track_update() {
             ..TrackChanges::default()
         },
     };
-    for (track, source) in [("music", "music"), ("music", "pictures"), ("pictures", "voice"), ("music", "missing")] {
+    for (track, source) in [
+        ("music", "music"),
+        ("music", "pictures"),
+        ("pictures", "voice"),
+        ("music", "missing"),
+    ] {
         let error = store
-            .apply(revision, "bad-duck", true, vec![update(track, Some(ducking(source)))])
+            .apply(
+                revision,
+                "bad-duck",
+                true,
+                vec![update(track, Some(ducking(source)))],
+            )
             .unwrap_err();
-        assert_eq!(error.code(), "INVALID_ARGUMENT", "{track} by {source}: {error}");
+        assert_eq!(
+            error.code(),
+            "INVALID_ARGUMENT",
+            "{track} by {source}: {error}"
+        );
     }
     store
-        .apply(revision, "duck", false, vec![update("music", Some(ducking("voice")))])
+        .apply(
+            revision,
+            "duck",
+            false,
+            vec![update("music", Some(ducking("voice")))],
+        )
         .unwrap();
     let project = store.snapshot().unwrap();
     let music = project.tracks.iter().find(|t| t.id == "music").unwrap();
     assert_eq!(music.ducking.as_ref().unwrap().source_track_id, "voice");
     // A ducked track cannot itself be a sidechain source (no chains).
     let error = store
-        .apply(project.revision, "chain", true, vec![update("voice", Some(ducking("music")))])
+        .apply(
+            project.revision,
+            "chain",
+            true,
+            vec![update("voice", Some(ducking("music")))],
+        )
         .unwrap_err();
     assert_eq!(error.code(), "INVALID_ARGUMENT");
     // JSON null clears it.
@@ -1146,6 +1173,15 @@ fn track_ducking_is_validated_set_and_cleared_through_track_update() {
         "op":"track.update","track_id":"music","changes":{"ducking":null}
     }))
     .unwrap();
-    store.apply(project.revision, "unduck", false, vec![parsed]).unwrap();
-    assert!(store.snapshot().unwrap().tracks.iter().all(|t| t.ducking.is_none()));
+    store
+        .apply(project.revision, "unduck", false, vec![parsed])
+        .unwrap();
+    assert!(
+        store
+            .snapshot()
+            .unwrap()
+            .tracks
+            .iter()
+            .all(|t| t.ducking.is_none())
+    );
 }

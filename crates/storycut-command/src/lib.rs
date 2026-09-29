@@ -1099,8 +1099,11 @@ pub fn dispatch(workspace: &Path, tool: &str, args: Value) -> Result<Value, Comm
                     });
                     write_ready_job(&jobs, &job_id, &ready_job)?;
                     let completed = finalize_ready_job(workspace, &jobs, &job_id)?;
-                    let mut response =
-                        success(Some(id), Some(revision), json!({"job":completed["job"]}));
+                    let mut data = json!({"job":completed["job"]});
+                    if let Some(loudness) = &report.master_loudness {
+                        data["master_loudness"] = loudness.clone();
+                    }
+                    let mut response = success(Some(id), Some(revision), data);
                     response["warnings"] = json!([{"code":"SYNCHRONOUS_RENDER","message":"Rendering currently completes before render_start returns; cancellation is not available."}]);
                     return Ok(response);
                 }
