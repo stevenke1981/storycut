@@ -8,6 +8,7 @@ use sha2::{Digest, Sha256};
 use tauri::State;
 use uuid::Uuid;
 
+mod ffmpeg_info;
 mod media_thumbnail;
 
 struct SelectedWorkspace(Mutex<Option<PathBuf>>);
@@ -30,6 +31,13 @@ async fn storycut_read_asset_thumbnail(
     })
     .await
     .map_err(|error| format!("來源縮圖工作失敗：{error}"))?
+}
+
+#[tauri::command]
+async fn storycut_ffmpeg_info() -> Result<Value, String> {
+    tauri::async_runtime::spawn_blocking(ffmpeg_info::read)
+        .await
+        .map_err(|error| format!("FFmpeg 探測失敗：{error}"))
 }
 
 #[tauri::command]
@@ -165,7 +173,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .manage(SelectedWorkspace(Mutex::new(None)))
-        .invoke_handler(tauri::generate_handler![storycut_set_workspace, storycut_dispatch, storycut_read_preview, storycut_read_asset_thumbnail])
+        .invoke_handler(tauri::generate_handler![storycut_set_workspace, storycut_dispatch, storycut_read_preview, storycut_read_asset_thumbnail, storycut_ffmpeg_info])
         .run(tauri::generate_context!())
         .expect("StoryCut desktop runtime failed");
 }

@@ -28,7 +28,7 @@ pub fn read(workspace: &Path, project_id: &str, asset_id: &str) -> Result<Value,
     }
     let project_path = store.project_path().map_err(|e| e.to_string())?;
     let source = source_path(workspace, &project_path, &asset.path)?;
-    let bytes = decode(&source)?;
+    let bytes = decode(&source, matches!(asset.kind, AssetKind::Video))?;
     let (width, height) = dimensions(&bytes)?;
     Ok(
         json!({"asset_id":asset_id, "mime_type":"image/png", "width":width, "height":height,
@@ -36,7 +36,16 @@ pub fn read(workspace: &Path, project_id: &str, asset_id: &str) -> Result<Value,
     )
 }
 
-fn decode(source: &Path) -> Result<Vec<u8>, String> {
+/// Scale filter shared by images and videos. Videos first run `thumbnail`, which
+/// picks the most representative frame of the first 48 decoded frames, so a
+/// fade-in or black leader does not become the bin thumbnail.
+fn thumbnail_filter(video: bool) -> String {
+    let scale = "scale=w='min(640,640*dar)':h='min(640,640/dar)',setsar=1";
+    if video { format!("thumbnail=48,{scale}") } else { scale.to_owned() }
+}
+
+fn decode(source: &Path, video: bool) -> Result<Vec<u8>, String> {
+    let filter = thumbnail_filter(video);
     let mut command = Command::new("ffmpeg");
     command
         .args([
@@ -56,7 +65,9 @@ fn decode(source: &Path) -> Result<Vec<u8>, String> {
             "-map",
             "0:v:0",
             "-vf",
-            "scale=w='min(640,640*dar)':h='min(640,640/dar)',setsar=1",
+        ])
+        .arg(&filter)
+        .args([
             "-frames:v",
             "1",
             "-c:v",
@@ -257,7 +268,7 @@ mod tests {
             String::from_utf8_lossy(&generated.stderr)
         );
         assert_eq!(
-            dimensions(&decode(&anamorphic).unwrap()).unwrap(),
+            dimensions(&decode(&anamorphic, false).unwrap()).unwrap(),
             (640, 480)
         );
 
@@ -285,11 +296,38 @@ mod tests {
             "{}",
             String::from_utf8_lossy(&generated.stderr)
         );
-        let error = decode(&oversized).unwrap_err();
+        let error = decode(&oversized, false).unwrap_err();
         assert!(
             error.contains("maximum allowed pixel count") || error.contains("max pixel count"),
             "{error}"
         );
+        fs::remove_dir_all(base).unwrap();
+    }
+
+    #[test]
+    fn video_thumbnail_skips_black_leader_with_real_ffmpeg() {
+        let base = std::env::temp_dir().join(format!("storycut-thumbnail-video-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&base).unwrap();
+        let clip = base.join("black-then-red.mp4");
+        // 0.5 s black followed by 1.5 s red: a naive first frame is black.
+        let generated = Command::new("ffmpeg")
+            .args(["-v", "error", "-f", "lavfi", "-i", "color=c=black:size=320x180:rate=24:duration=0.5",
+                   "-f", "lavfi", "-i", "color=c=red:size=320x180:rate=24:duration=1.5",
+                   "-filter_complex", "[0][1]concat=n=2:v=1:a=0", "-pix_fmt", "yuv420p", "-c:v", "libx264"])
+            .arg(&clip)
+            .output()
+            .unwrap();
+        assert!(generated.status.success(), "{}", String::from_utf8_lossy(&generated.stderr));
+        let png = decode(&clip, true).unwrap();
+        assert_eq!(dimensions(&png).unwrap(), (640, 360));
+        let mut raw = Command::new("ffmpeg")
+            .args(["-v", "error", "-i", "pipe:0", "-f", "rawvideo", "-pix_fmt", "rgb24", "-vf", "scale=1:1", "pipe:1"])
+            .stdin(Stdio::piped()).stdout(Stdio::piped()).spawn().unwrap();
+        use std::io::Write;
+        raw.stdin.take().unwrap().write_all(&png).unwrap();
+        let out = raw.wait_with_output().unwrap();
+        assert_eq!(out.stdout.len(), 3);
+        assert!(out.stdout[0] > 100 && out.stdout[1] < 100, "thumbnail is not the red frame: {:?}", out.stdout);
         fs::remove_dir_all(base).unwrap();
     }
 }

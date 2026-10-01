@@ -1,11 +1,14 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type DragEvent, type PointerEvent as ReactPointerEvent } from "react";
-import { api, errorText, idempotencyKey, jobOf, mediaOf, projectOf, timelineOf } from "./api";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from "react";
+import { api, errorText, type FfmpegInfo, idempotencyKey, jobOf, mediaOf, projectOf, timelineOf } from "./api";
 import { makeDemo } from "./demo";
 import { ImageMotionInspector } from "./ImageMotionInspector";
 import { StoryAssemblyPanel, type StoryboardResult } from "./StoryAssemblyPanel";
 import { TIMEBASE, type Asset, type AudioSettings, type BackendMode, type Clip, type Envelope, type Job, type MediaKind, type Project, type Timeline, type Track, type TrackKind } from "./types";
 
 type IconName = "folder" | "plus" | "play" | "pause" | "undo" | "redo" | "zoom" | "image" | "video" | "audio" | "subtitle" | "lock" | "unlock" | "eye" | "mute" | "solo" | "render" | "chevron" | "close" | "search" | "split" | "scissors" | "download" | "check";
+type DragPayload = { kind: "asset" | "clip"; id: string; label: string; mediaKind: MediaKind; grabPx: number };
+type DragState = DragPayload & { x: number; y: number };
+type DropLane = { trackId: string; ok: boolean; tick: number };
 type HighLevelRequest = { projectId: string; workspace: string | null; revision: number; idempotencyKey: string };
 
 function Icon({ name, size = 16 }: { name: IconName; size?: number }) {
@@ -40,6 +43,10 @@ export function App() {
   const [encoder, setEncoder] = useState<"h264_cpu" | "h264_nvenc">("h264_cpu");
   const [trimState, setTrimState] = useState<{ clipId: string; edge: "left" | "right"; origin: number; start: number; duration: number; original: Clip } | null>(null);
   const [dragClipId, setDragClipId] = useState<string | null>(null);
+  const [drag, setDrag] = useState<DragState | null>(null);
+  const [dropLane, setDropLane] = useState<DropLane | null>(null);
+  const [fileDropActive, setFileDropActive] = useState(false);
+  const [ffmpeg, setFfmpeg] = useState<FfmpegInfo | null>(null);
   const [previewArtifact, setPreviewArtifact] = useState<string | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [previewVideoArtifact, setPreviewVideoArtifact] = useState<string | null>(null);
@@ -55,6 +62,9 @@ export function App() {
   const sessionGeneration = useRef(0);
   const syncInFlight = useRef(false);
   const initialFitProject = useRef<string | null>(null);
+  // Pointer/native-drop listeners outlive a render, so they call the newest handlers through this ref.
+  const latest = useRef<{ addAssetClip: typeof addAssetClip; moveClip: typeof moveClip; importDropped: (paths: string[]) => Promise<void>; timeline: Timeline | null; project: Project | null; clipsById: Map<string, Clip> }>(null as never);
+  const dragging = drag !== null;
 
   useEffect(() => { timelineRef.current = timeline; }, [timeline]);
   useEffect(() => { projectRef.current = project; }, [project]);
@@ -71,7 +81,7 @@ export function App() {
   }, [playing, timeline, mode]);
 
   useEffect(() => {
-    if (!project || !timeline || mode !== "tauri" || busy || document.hidden || Boolean(trimState) || Boolean(dragClipId) || playing || previewState === "rendering") return;
+    if (!project || !timeline || mode !== "tauri" || busy || document.hidden || Boolean(trimState) || Boolean(dragClipId) || dragging || playing || previewState === "rendering") return;
     const projectId = project.project_id;
     const generation = sessionGeneration.current;
     const workspace = api.workspacePath;
@@ -93,7 +103,7 @@ export function App() {
     };
     const timer = window.setInterval(() => { void synchronize(); }, 2000);
     return () => { disposed = true; window.clearInterval(timer); };
-  }, [mode, project?.project_id, project?.revision, busy, timeline?.duration_ticks, trimState, dragClipId, playing, previewState]);
+  }, [mode, project?.project_id, project?.revision, busy, timeline?.duration_ticks, trimState, dragClipId, dragging, playing, previewState]);
 
   useEffect(() => {
     if (!project || !timeline || initialFitProject.current === project.project_id) return;
@@ -101,6 +111,28 @@ export function App() {
     const frame = window.requestAnimationFrame(() => fitTimeline());
     return () => window.cancelAnimationFrame(frame);
   }, [project?.project_id, timeline?.duration_ticks]);
+
+  useEffect(() => {
+    if (mode !== "tauri") return;
+    let disposed = false;
+    api.ffmpegInfo().then((info) => { if (!disposed) setFfmpeg(info); }).catch(() => { if (!disposed) setFfmpeg({ available: false, version: null, encoders: {} }); });
+    return () => { disposed = true; };
+  }, [mode]);
+
+  useEffect(() => {
+    if (mode !== "tauri") return;
+    let disposed = false;
+    let stop: (() => void) | undefined;
+    api.onFileDrop({ onHover: setFileDropActive, onDrop: (paths) => { void latest.current.importDropped(paths); } })
+      .then((off) => { if (disposed) off(); else stop = off; })
+      .catch((caught) => { if (!disposed) setError(`無法啟用檔案拖放：${errorText(caught)}`); });
+    return () => { disposed = true; stop?.(); };
+  }, [mode]);
+
+  useEffect(() => {
+    document.body.classList.toggle("is-dragging", dragging);
+    return () => document.body.classList.remove("is-dragging");
+  }, [dragging]);
 
   const safeAction = useCallback(async (action: () => Promise<void>) => {
     setError(null);
@@ -175,7 +207,14 @@ export function App() {
     if (mode === "demo") { setToast("預覽專案不可開啟真實檔案。請關閉預覽並使用桌面版。"); return; }
     await safeAction(async () => {
       const path = await api.openProject();
-      if (!path) return;
+      if (path) await openProjectPath(path);
+    });
+  }
+
+  async function openProjectPath(path: string) {
+    if (mode === "demo") { setToast("預覽專案不可開啟真實檔案。請關閉預覽並使用桌面版。"); return; }
+    if (busy) { setToast("共用核心正在處理另一項操作，請稍後再試。"); return; }
+    await safeAction(async () => {
       const previousWorkspace = api.workspacePath;
       const slash = Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\"));
       await api.setWorkspace(path.slice(0, slash));
@@ -249,17 +288,32 @@ export function App() {
       return;
     }
     if (!supportsTool("storycut_media_import")) { setError("核心尚未實作媒體匯入（UNSUPPORTED_FEATURE）。沒有變更專案素材。"); return; }
+    await safeAction(async () => { await importPaths(await api.importMedia()); });
+  }
+
+  async function importPaths(paths: string[]) {
+    if (!project || !paths.length) return;
+    if (!supportsTool("storycut_media_import")) { setError("核心尚未實作媒體匯入（UNSUPPORTED_FEATURE）。沒有變更專案素材。"); return; }
+    api.assertInWorkspace(paths);
+    setBusy(true);
+    try {
+      const result = await api.checked<{ committed: boolean; assets: Asset[] }>("storycut_media_import", {
+        project_id: project.project_id, expected_revision: project.revision, idempotency_key: idempotencyKey("media-import"), dry_run: false, paths,
+      });
+      await refresh(project.project_id);
+      setToast(`已匯入 ${mediaOf(result.data).length} 個素材`);
+    } finally { setBusy(false); }
+  }
+
+  async function importDropped(paths: string[]) {
+    const { media, project: projectFile, ignored } = api.classifyDropped(paths);
+    if (projectFile) { await openProjectPath(projectFile); return; }
+    if (!project || mode !== "tauri") { setToast("請先開啟專案，再拖入素材。"); return; }
+    if (busy) { setToast("共用核心正在處理另一項操作，請稍後再試。"); return; }
+    if (!media.length) { setToast("拖入的項目不是支援的影音或圖片檔。"); return; }
     await safeAction(async () => {
-      const paths = await api.importMedia();
-      if (!paths.length) return;
-      setBusy(true);
-      try {
-        const result = await api.checked<{ committed: boolean; assets: Asset[] }>("storycut_media_import", {
-          project_id: project.project_id, expected_revision: project.revision, idempotency_key: idempotencyKey("media-import"), dry_run: false, paths,
-        });
-        await refresh(project.project_id);
-        setToast(`已匯入 ${mediaOf(result.data).length} 個素材`);
-      } finally { setBusy(false); }
+      await importPaths(media);
+      if (ignored) setToast(`已匯入 ${media.length} 個素材；略過 ${ignored} 個不支援的項目。`);
     });
   }
 
@@ -751,16 +805,59 @@ export function App() {
     return Math.max(0, ((clientX - left + horizontal) / pxPerSecond) * TIMEBASE);
   }
 
-  function onTimelineDrop(event: DragEvent<HTMLDivElement>, track: Track) {
-    event.preventDefault();
-    if (track.locked) return;
-    const assetId = event.dataTransfer.getData("application/x-storycut-asset");
-    if (assetId) { void addAssetClip(assetId, tickFromClientX(event.clientX), track); return; }
-    const clipId = event.dataTransfer.getData("application/x-storycut-clip");
-    if (!clipId) return;
-    const clip = timeline?.clips.find((item) => item.id === clipId);
-    if (clip) void moveClip(clip, tickFromClientX(event.clientX), track);
-    setDragClipId(null);
+  function laneAt(x: number, y: number, payload: DragPayload): DropLane | null {
+    const lane = document.elementFromPoint(x, y)?.closest<HTMLElement>(".track-lane[data-track-id]");
+    const current = latest.current;
+    const track = current.timeline?.tracks.find((item) => item.id === lane?.dataset.trackId);
+    if (!track || !current.project) return null;
+    const accepts = payload.mediaKind === "image" ? track.kind === "image" || track.kind === "video" : payload.mediaKind === track.kind;
+    const raw = tickFromClientX(x) - payload.grabPx / pxPerSecond * TIMEBASE;
+    return { trackId: track.id, ok: accepts && !track.locked, tick: snapTick(raw, current.project.canvas.fps.num, current.project.canvas.fps.den) };
+  }
+
+  function beginPointerDrag(event: ReactPointerEvent<HTMLElement>, payload: DragPayload) {
+    if (event.button !== 0 || busy || (event.target as HTMLElement).closest(".trim-handle, button.asset-add")) return;
+    const startX = event.clientX, startY = event.clientY;
+    let active = false;
+    const detach = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      window.removeEventListener("pointercancel", cancel);
+      window.removeEventListener("keydown", key);
+    };
+    const move = (e: PointerEvent) => {
+      if (!active) {
+        if (Math.hypot(e.clientX - startX, e.clientY - startY) < 5) return;
+        active = true;
+        if (payload.kind === "clip") setDragClipId(payload.id);
+      }
+      setDrag({ ...payload, x: e.clientX, y: e.clientY });
+      setDropLane(laneAt(e.clientX, e.clientY, payload));
+      const bounds = timeScroll.current?.getBoundingClientRect();
+      if (bounds && timeScroll.current) {
+        if (e.clientX > bounds.right - 40) timeScroll.current.scrollLeft += 18;
+        else if (e.clientX < bounds.left + 256) timeScroll.current.scrollLeft -= 18;
+      }
+    };
+    const end = (point: { clientX: number; clientY: number } | null) => {
+      detach();
+      if (!active) return;
+      const target = point ? laneAt(point.clientX, point.clientY, payload) : null;
+      setDrag(null); setDropLane(null); setDragClipId(null);
+      if (!point) return;
+      const track = latest.current.timeline?.tracks.find((item) => item.id === target?.trackId);
+      if (!target || !track) return;
+      if (!target.ok) { setToast(track.locked ? "此軌道已鎖定，素材未放入。" : `此軌道不接受${KIND_LABEL[payload.mediaKind]}素材。`); return; }
+      if (payload.kind === "asset") void latest.current.addAssetClip(payload.id, target.tick, track);
+      else { const clip = latest.current.clipsById.get(payload.id); if (clip) void latest.current.moveClip(clip, target.tick, track); }
+    };
+    const up = (e: PointerEvent) => end(e);
+    const cancel = () => end(null);
+    const key = (e: KeyboardEvent) => { if (e.key === "Escape") end(null); };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+    window.addEventListener("pointercancel", cancel);
+    window.addEventListener("keydown", key);
   }
 
   function beginTrim(event: ReactPointerEvent<HTMLButtonElement>, clip: Clip, edge: "left" | "right") {
@@ -798,6 +895,7 @@ export function App() {
     seekTo(tickFromClientX(event.clientX));
   }
 
+  latest.current = { addAssetClip, moveClip, importDropped, timeline, project, clipsById: new Map((timeline?.clips ?? []).map((clip) => [clip.id, clip])) };
   const toolbarDisabled = !project || busy;
 
   return (
@@ -824,7 +922,7 @@ export function App() {
           <div className="panel-heading"><div><span className="eyebrow">PROJECT BIN</span><h2>素材庫 <span className="count-pill">{assets.length}</span></h2></div><button className="small-square" disabled={!project || busy || mode === "tauri" && !supportsTool("storycut_media_import")} title={mode === "tauri" && !supportsTool("storycut_media_import") ? "核心尚未實作 media_import" : "匯入工作區內媒體"} onClick={() => void importAssets()}><Icon name="plus" /></button></div>
           {!project ? <div className="asset-empty"><div className="empty-orbit"><Icon name="folder" size={22} /></div><strong>從一個故事開始</strong><p>開啟既有專案，或建立新專案，再匯入你的影像與聲音。</p><button className="button button-primary" disabled={mode === "demo"} onClick={() => void createProject()}>建立專案</button>{mode === "unavailable" && <button className="text-button" onClick={openDemo}>開啟介面預覽</button>}</div> : <>
             <div className="bin-toolbar"><label className="search-field"><Icon name="search" size={14} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜尋素材" /></label><select aria-label="素材類型篩選" value={filter} onChange={(event) => setFilter(event.target.value as typeof filter)}><option value="all">全部</option><option value="video">影片</option><option value="image">圖片</option><option value="audio">聲音</option></select></div>
-            <div className="asset-list">{filteredAssets.map((asset) => <AssetItem key={asset.id} asset={asset} selected={selectedAsset === asset.id} canAdd={mode === "demo" || supportsOperation("clip.add")} onSelect={() => { setSelectedAsset(asset.id); setSelectedClip(null); }} onAdd={() => void addAssetClip(asset.id)} onDragStart={(event) => event.dataTransfer.setData("application/x-storycut-asset", asset.id)} />)}{filteredAssets.length === 0 && <div className="empty-filter">{assets.length ? "找不到符合的素材" : "素材庫目前是空的"}<button className="button button-quiet" disabled={mode === "tauri" && !supportsTool("storycut_media_import")} onClick={() => void importAssets()}><Icon name="plus" /> 匯入素材</button></div>}</div>
+            <div className="asset-list">{filteredAssets.map((asset) => <AssetItem key={asset.id} asset={asset} projectId={project.project_id} thumbnails={mode === "tauri"} selected={selectedAsset === asset.id} canAdd={mode === "demo" || supportsOperation("clip.add")} onSelect={() => { setSelectedAsset(asset.id); setSelectedClip(null); }} onAdd={() => void addAssetClip(asset.id)} onPointerDown={(event) => beginPointerDrag(event, { kind: "asset", id: asset.id, label: asset.path.split(/[\\/]/).pop() ?? asset.id, mediaKind: asset.kind, grabPx: 0 })} />)}{filteredAssets.length === 0 && <div className="empty-filter">{assets.length ? "找不到符合的素材" : "素材庫目前是空的"}<button className="button button-quiet" disabled={mode === "tauri" && !supportsTool("storycut_media_import")} onClick={() => void importAssets()}><Icon name="plus" /> 匯入素材</button></div>}</div>
           <div className="bin-footer" title="素材必須位於專案資料夾或其子資料夾中；不會自動複製素材"><span><span className="green-led" /> 工作區內媒體</span><span>{assets.filter((asset) => asset.sha256).length} 已驗證</span></div>
           </>}
         </aside>
@@ -849,7 +947,7 @@ export function App() {
               <div className="timeline-canvas" style={{ width: timelineWidth, ["--px-per-second" as string]: `${pxPerSecond}px` }}>
                 <div className="ruler" onPointerDown={seekFromEvent} style={{ width: timelineWidth }}><div className="ruler-base" />{Array.from({ length: Math.ceil(visibleSeconds / rulerInterval) + 1 }, (_, index) => index * rulerInterval).map((sec) => <div key={sec} className="ruler-tick" style={{ left: sec * pxPerSecond }}><span>{formatTime(sec)}</span></div>)}</div>
                 <div className="playhead-line" style={{ left: (playhead / TIMEBASE) * pxPerSecond }} />
-                {timeline.tracks.map((track) => <TrackLane key={track.id} track={track} clips={timeline.clips.filter((clip) => clip.track_id === track.id)} assets={assets} selectedClip={selectedClip} dragClipId={dragClipId} scale={pxPerSecond} timelineWidth={timelineWidth} onClipSelect={(clip) => { setSelectedClip(clip.id); setSelectedAsset(clip.asset_id); }} onClipDragStart={(clip) => { setDragClipId(clip.id); }} onClipDragEnd={() => setDragClipId(null)} onDrop={(event) => onTimelineDrop(event, track)} onDragOver={(event) => event.preventDefault()} onTrimStart={beginTrim} onTrimMove={updateTrim} onTrimEnd={() => void endTrim()} onPointerDown={seekFromEvent} />)}
+                {timeline.tracks.map((track) => <TrackLane key={track.id} track={track} clips={timeline.clips.filter((clip) => clip.track_id === track.id)} assets={assets} selectedClip={selectedClip} dragClipId={dragClipId} dropLane={dropLane?.trackId === track.id ? dropLane : null} scale={pxPerSecond} timelineWidth={timelineWidth} onClipSelect={(clip) => { setSelectedClip(clip.id); setSelectedAsset(clip.asset_id); }} onClipPointerDown={(event, clip) => beginPointerDrag(event, { kind: "clip", id: clip.id, label: assets.find((item) => item.id === clip.asset_id)?.path.split(/[\\/]/).pop() ?? clip.id, mediaKind: clip.kind, grabPx: Math.max(0, event.clientX - event.currentTarget.getBoundingClientRect().left) })} onTrimStart={beginTrim} onTrimMove={updateTrim} onTrimEnd={() => void endTrim()} onPointerDown={seekFromEvent} />)}
                 <div className="timeline-tail" style={{ left: timelineWidth - 8 }}>片尾</div>
               </div>
             </div></div>
@@ -862,11 +960,13 @@ export function App() {
         <aside className="inspector-panel panel">
           <div className="panel-heading inspector-heading"><div><span className="eyebrow">INSPECTOR</span><h2>屬性</h2></div><span className="inspector-kicker">{selectedClipData ? "CLIP" : selectedAssetData ? "MEDIA" : "PROJECT"}</span></div>
           {!project ? <div className="inspector-empty"><div className="inspector-empty-icon"><Icon name="image" size={21} /></div><strong>尚未選取項目</strong><p>開啟一個專案，或選取素材與片段來查看資訊。</p></div> : selectedClipData ? <div className="inspector-content inspector-combined"><ClipInspector clip={selectedClipData} asset={selectedAssetData} track={timeline?.tracks.find((item) => item.id === selectedClipData.track_id)} onChange={(patch) => void trimClip(selectedClipData, selectedClipData.start_tick, patch.duration_ticks ?? selectedClipData.duration_ticks)} onAudioChange={(audio) => void updateAudioClip(selectedClipData, audio)} sampleRate={project.audio_sample_rate} />{selectedClipData.kind === "image" && selectedAssetData?.kind === "image" && <ImageMotionInspector key={`${project.project_id}:${api.workspacePath ?? ""}:${selectedClipData.id}`} projectId={project.project_id} revision={project.revision} workspace={api.workspacePath} clip={selectedClipData} asset={selectedAssetData} assets={assets} imageClips={(timeline?.clips ?? []).filter((clip) => clip.kind === "image" && timeline?.tracks.some((track) => track.id === clip.track_id && !track.locked))} mode={mode} busy={busy} supported={mode === "tauri" && implementedTools.includes("storycut_focal_motion_apply")} onApply={(args, dryRun, request) => runHighLevel("storycut_focal_motion_apply", args as unknown as Record<string, unknown>, dryRun, request)} />}</div> : selectedAssetData ? <AssetInspector asset={selectedAssetData} onAdd={() => void addAssetClip(selectedAssetData.id)} /> : <ProjectInspector project={project} timeline={timeline} onAddDefaults={() => void addStarterTracks()} canAddDefaults={mode === "demo" || supportsOperation("track.add")} />}
-          <div className="inspector-bottom"><div className="render-card"><div className="render-card-top"><div className="render-icon"><Icon name="render" size={15} /></div><div><strong>輸出設定</strong><span>H.264 · AAC · MP4</span></div></div><label className="field-label">字幕處理<select disabled={!project} value={subtitleMode} onChange={(event) => setSubtitleMode(event.target.value as typeof subtitleMode)}><option value="none">不燒錄字幕</option><option value="burn">燒錄字幕</option></select></label><label className="field-label">編碼器<select disabled={!project} value={encoder} onChange={(event) => setEncoder(event.target.value as typeof encoder)}><option value="h264_cpu">H.264 · CPU</option><option value="h264_nvenc">H.264 · NVIDIA NVENC</option></select></label><button className="button button-primary render-button" disabled={!project || busy || mode === "tauri" && !supportsTool("storycut_render_start")} title={mode === "tauri" && !supportsTool("storycut_render_start") ? "核心尚未實作 render_start" : "匯出影片"} onClick={() => void startRender()}><Icon name="render" /> 開始匯出</button></div>{job && <div className="job-card"><div className="job-title"><strong>{job.kind === "render" ? "影片輸出工作" : "預覽工作"}</strong><span className={`job-state ${job.state}`}>{job.state}</span></div><div className="job-meta">來源修訂 v{job.source_revision} · {job.job_id}</div><div className="progress-track"><i style={{ width: `${Math.round((job.progress ?? (job.state === "succeeded" ? 1 : 0)) * 100)}%` }} /></div><div className="job-actions"><span>{job.progress == null ? "等待核心狀態" : `${Math.round(job.progress * 100)}%`}</span><button onClick={() => void refreshJob()}>更新狀態</button>{["queued", "running", "cancelling"].includes(job.state) && <button onClick={() => void cancelJob()}>取消</button>}</div></div>}</div>
+          <div className="inspector-bottom"><div className="render-card"><div className="render-card-top"><div className="render-icon"><Icon name="render" size={15} /></div><div><strong>輸出設定</strong><span>H.264 · AAC · MP4</span></div></div><label className="field-label">字幕處理<select disabled={!project} value={subtitleMode} onChange={(event) => setSubtitleMode(event.target.value as typeof subtitleMode)}><option value="none">不燒錄字幕</option><option value="burn">燒錄字幕</option></select></label><label className="field-label">編碼器<select disabled={!project} value={encoder} onChange={(event) => setEncoder(event.target.value as typeof encoder)}><option value="h264_cpu">H.264 · CPU</option><option value="h264_nvenc" disabled>H.264 · NVENC（核心尚未驗證）</option></select></label><div className={`ffmpeg-chip ${ffmpeg ? ffmpeg.available && ffmpeg.encoders.libx264 && ffmpeg.encoders.aac ? "ok" : "bad" : ""}`} title="StoryCut 經 PATH 呼叫 FFmpeg；不會自動下載">{mode !== "tauri" ? "FFmpeg 狀態僅桌面版提供" : !ffmpeg ? "檢查 FFmpeg…" : !ffmpeg.available ? "找不到 FFmpeg，請安裝並加入 PATH" : `FFmpeg ${ffmpeg.version ?? ""} · x264 ${ffmpeg.encoders.libx264 ? "✓" : "✗"} · AAC ${ffmpeg.encoders.aac ? "✓" : "✗"}`}</div><button className="button button-primary render-button" disabled={!project || busy || mode === "tauri" && !supportsTool("storycut_render_start")} title={mode === "tauri" && !supportsTool("storycut_render_start") ? "核心尚未實作 render_start" : "匯出影片"} onClick={() => void startRender()}><Icon name="render" /> 開始匯出</button></div>{job && <div className="job-card"><div className="job-title"><strong>{job.kind === "render" ? "影片輸出工作" : "預覽工作"}</strong><span className={`job-state ${job.state}`}>{job.state}</span></div><div className="job-meta">來源修訂 v{job.source_revision} · {job.job_id}</div><div className="progress-track"><i style={{ width: `${Math.round((job.progress ?? (job.state === "succeeded" ? 1 : 0)) * 100)}%` }} /></div><div className="job-actions"><span>{job.progress == null ? "等待核心狀態" : `${Math.round(job.progress * 100)}%`}</span><button onClick={() => void refreshJob()}>更新狀態</button>{["queued", "running", "cancelling"].includes(job.state) && <button onClick={() => void cancelJob()}>取消</button>}</div></div>}</div>
         </aside>
       </section>
 
       <input id="demo-file-input" type="file" multiple accept="image/*,video/*,audio/*" hidden onChange={(event) => { void importDemoFiles(event.target.files); event.currentTarget.value = ""; }} />
+      {fileDropActive && <div className="file-drop-overlay" aria-hidden="true"><div><Icon name="download" size={28} /><strong>放開以匯入素材</strong><span>影片、圖片、聲音；拖入 .storycut.json 可開啟專案</span></div></div>}
+      {drag && <div className={`drag-ghost ${drag.mediaKind}`} style={{ left: drag.x + 14, top: drag.y + 14 }}><Icon name={KIND_ICON[drag.mediaKind]} size={13} />{drag.label}</div>}
       {toast && <div role="status" className="toast"><span className="toast-check"><Icon name={error ? "close" : "check"} size={14} /></span>{toast}</div>}
       {busy && <div className="busy-indicator"><span /> 正在與共用核心同步…</div>}
     </main>
@@ -882,27 +982,44 @@ function TrackLabel({ track, canUpdate, onUpdateName, onUpdateGain, onToggleLock
   return <div className={`track-label ${track.kind} ${track.locked ? "is-locked" : ""}`}><div className="track-name-row"><span className={`track-kind ${track.kind}`}><Icon name={KIND_ICON[track.kind]} size={12} /></span><input aria-label={`${track.name} 軌道名稱`} className="track-name-editor" value={name} maxLength={200} disabled={!canUpdate || track.locked} title={canUpdate ? "修改軌道名稱" : "核心尚未實作 track.update"} onChange={(event) => setName(event.target.value)} onBlur={commitName} onKeyDown={(event) => { if (event.key === "Enter") event.currentTarget.blur(); }} /><button className={`track-eye ${track.enabled ? "active" : ""}`} title={track.enabled ? "隱藏軌道" : "顯示軌道"} onClick={onToggleEnabled}><Icon name="eye" size={13} /></button></div><div className="track-controls"><span className="track-index">{track.kind === "video" ? "V" : track.kind === "image" ? "I" : track.kind === "audio" ? "A" : "S"}</span>{track.kind === "audio" && <><button className={track.muted ? "control-active" : ""} title={track.muted ? "取消靜音" : "靜音"} onClick={onToggleMute}>M</button><button className={track.solo ? "solo-active" : ""} title={track.solo ? "取消獨奏" : "獨奏"} onClick={onToggleSolo}>S</button><label className="track-gain" title={`軌道增益 ${gain} dB`}><span>{gain}dB</span><input aria-label={`${track.name} 軌道增益 dB`} type="range" min="-48" max="12" step="1" value={gain} disabled={!canUpdate || track.locked} onChange={(event) => setGain(Number(event.target.value))} onPointerUp={commitGain} onBlur={commitGain} /></label></>}<button className={track.locked ? "control-active" : ""} title={track.locked ? "解除軌道鎖定" : "鎖定軌道"} onClick={onToggleLock}><Icon name={track.locked ? "lock" : "unlock"} size={12} /></button></div></div>;
 }
 
-function AssetItem({ asset, selected, canAdd, onSelect, onAdd, onDragStart }: { asset: Asset; selected: boolean; canAdd: boolean; onSelect: () => void; onAdd: () => void; onDragStart: (event: DragEvent<HTMLDivElement>) => void }) {
-  return <div className={`asset-item ${selected ? "selected" : ""}`} onClick={onSelect} draggable={canAdd} onDragStart={onDragStart}>
-    <div className={`asset-thumb ${asset.kind}`} aria-hidden="true"><div className="thumb-object">{asset.kind === "video" ? <Icon name="play" size={15} /> : <Icon name={KIND_ICON[asset.kind]} size={17} />}</div><span className="media-duration">{asset.kind === "image" ? "IMAGE" : formatTime((asset.duration_ticks ?? 0) / TIMEBASE)}</span></div>
+function AssetItem({ asset, projectId, thumbnails, selected, canAdd, onSelect, onAdd, onPointerDown }: { asset: Asset; projectId: string; thumbnails: boolean; selected: boolean; canAdd: boolean; onSelect: () => void; onAdd: () => void; onPointerDown: (event: ReactPointerEvent<HTMLDivElement>) => void }) {
+  const itemRef = useRef<HTMLDivElement>(null);
+  const [thumb, setThumb] = useState<string | null>(null);
+  const wantsThumb = thumbnails && asset.kind !== "audio" && asset.probe_status !== "offline" && asset.probe_status !== "error";
+  useEffect(() => {
+    setThumb(null);
+    const element = itemRef.current;
+    if (!wantsThumb || !element) return;
+    let cancelled = false;
+    const observer = new IntersectionObserver((entries) => {
+      if (!entries.some((entry) => entry.isIntersecting)) return;
+      observer.disconnect();
+      void api.readAssetThumbnail(projectId, asset).then((result) => { if (!cancelled) setThumb(result.data_url); }).catch(() => undefined);
+    });
+    observer.observe(element);
+    return () => { cancelled = true; observer.disconnect(); };
+  }, [wantsThumb, projectId, asset.id, asset.sha256]);
+  return <div ref={itemRef} className={`asset-item ${selected ? "selected" : ""}`} onClick={onSelect} onPointerDown={canAdd ? onPointerDown : undefined}>
+    <div className={`asset-thumb ${asset.kind}`} aria-hidden="true">{thumb && <img src={thumb} alt="" draggable={false} />}<div className="thumb-object">{asset.kind === "video" ? <Icon name="play" size={15} /> : <Icon name={KIND_ICON[asset.kind]} size={17} />}</div><span className="media-duration">{asset.kind === "image" ? "IMAGE" : formatTime((asset.duration_ticks ?? 0) / TIMEBASE)}</span></div>
     <div className="asset-info"><div className="asset-name" title={asset.path}>{asset.path.split(/[\\/]/).pop()}</div><div className="asset-meta"><Icon name={KIND_ICON[asset.kind]} size={12} /><span>{KIND_LABEL[asset.kind]}</span><span className="meta-dot">·</span><span>{asset.probe_status === "probed" ? "已檢查" : asset.probe_status === "unprobed" ? "未探測" : "離線"}</span></div></div>
     <button className="asset-add" title={canAdd ? "加入時間軸" : "核心尚未實作 clip.add"} disabled={!canAdd} onClick={(event) => { event.stopPropagation(); onAdd(); }}><Icon name="plus" size={15} /></button>
   </div>;
 }
 
-function TrackLane({ track, clips, assets, selectedClip, dragClipId, scale, timelineWidth, onClipSelect, onClipDragStart, onClipDragEnd, onDrop, onDragOver, onTrimStart, onTrimMove, onTrimEnd, onPointerDown }: {
-  track: Track; clips: Clip[]; assets: Asset[]; selectedClip: string | null; dragClipId: string | null; scale: number; timelineWidth: number;
-  onClipSelect: (clip: Clip) => void; onClipDragStart: (clip: Clip) => void; onClipDragEnd: () => void; onDrop: (event: DragEvent<HTMLDivElement>) => void; onDragOver: (event: DragEvent<HTMLDivElement>) => void;
+function TrackLane({ track, clips, assets, selectedClip, dragClipId, dropLane, scale, timelineWidth, onClipSelect, onClipPointerDown, onTrimStart, onTrimMove, onTrimEnd, onPointerDown }: {
+  track: Track; clips: Clip[]; assets: Asset[]; selectedClip: string | null; dragClipId: string | null; dropLane: DropLane | null; scale: number; timelineWidth: number;
+  onClipSelect: (clip: Clip) => void; onClipPointerDown: (event: ReactPointerEvent<HTMLDivElement>, clip: Clip) => void;
   onTrimStart: (event: ReactPointerEvent<HTMLButtonElement>, clip: Clip, edge: "left" | "right") => void; onTrimMove: (event: ReactPointerEvent<HTMLButtonElement>) => void; onTrimEnd: () => void; onPointerDown: (event: ReactPointerEvent<HTMLDivElement>) => void;
 }) {
-  return <div className={`track-lane ${track.kind} ${track.enabled ? "" : "disabled"} ${track.locked ? "locked" : ""}`} style={{ width: timelineWidth }} onDrop={onDrop} onDragOver={onDragOver} onPointerDown={onPointerDown}>
+  return <div className={`track-lane ${track.kind} ${track.enabled ? "" : "disabled"} ${track.locked ? "locked" : ""} ${dropLane ? dropLane.ok ? "drop-ok" : "drop-bad" : ""}`} data-track-id={track.id} style={{ width: timelineWidth }} onPointerDown={onPointerDown}>
     <div className="lane-grid" />
+    {dropLane?.ok && <div className="drop-marker" style={{ left: dropLane.tick / TIMEBASE * scale }} />}
     {clips.map((clip) => {
       const asset = assets.find((item) => item.id === clip.asset_id);
       const startX = clip.start_tick / TIMEBASE * scale;
       const width = Math.max(Math.min(38, Math.max(5, scale * 10)), clip.duration_ticks / TIMEBASE * scale);
       const style = { left: startX, width, opacity: track.enabled ? 1 : 0.38 } as CSSProperties;
-      return <div key={clip.id} className={`clip-card ${clip.kind} ${width < 78 ? "compact" : ""} ${selectedClip === clip.id ? "selected" : ""} ${track.locked ? "locked" : ""} ${dragClipId === clip.id ? "dragging" : ""}`} title={`${asset?.path.split(/[\\/]/).pop() ?? clip.id} · ${formatTime(clip.start_tick / TIMEBASE)} · ${formatTime(clip.duration_ticks / TIMEBASE)}`} style={style} draggable={!track.locked} onClick={(event) => { event.stopPropagation(); onClipSelect(clip); }} onDragStart={(event) => { event.dataTransfer.setData("application/x-storycut-clip", clip.id); onClipDragStart(clip); }} onDragEnd={onClipDragEnd} onDoubleClick={() => onClipSelect(clip)}>
+      return <div key={clip.id} className={`clip-card ${clip.kind} ${width < 78 ? "compact" : ""} ${selectedClip === clip.id ? "selected" : ""} ${track.locked ? "locked" : ""} ${dragClipId === clip.id ? "dragging" : ""}`} title={`${asset?.path.split(/[\\/]/).pop() ?? clip.id} · ${formatTime(clip.start_tick / TIMEBASE)} · ${formatTime(clip.duration_ticks / TIMEBASE)}`} style={style} onPointerDown={track.locked ? undefined : (event) => onClipPointerDown(event, clip)} onClick={(event) => { event.stopPropagation(); onClipSelect(clip); }} onDoubleClick={() => onClipSelect(clip)}>
         <button className="trim-handle left" aria-label="修剪片段起點" onPointerDown={(event) => onTrimStart(event, clip, "left")} onPointerMove={onTrimMove} onPointerUp={onTrimEnd} />
         {clip.kind === "audio" ? <><span className="audio-strip-tag">AUDIO STRIP</span><span className="clip-label">{asset?.path.split(/[\\/]/).pop()}</span></> : <><div className={`clip-image ${clip.kind}`}><Icon name={clip.kind === "video" ? "play" : "image"} size={11} /></div><span className="clip-label">{asset?.path.split(/[\\/]/).pop()}</span><span className="clip-subtitle">{formatTime(clip.duration_ticks / TIMEBASE)} · {clip.kind === "video" ? "VIDEO" : "IMAGE"}</span></>}
         {track.locked && <span className="clip-lock"><Icon name="lock" size={11} /></span>}

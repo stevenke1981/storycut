@@ -29,3 +29,12 @@
 - [M6] MCP Progress：進行中的 request token 與進度。https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/progress
 
 本案選 2025-11-25 作基本相容性基線，**不宣稱它是最新規範**。產品功能、33 工具與 tick 常數是 StoryCut 設計決策，不應歸因給 MCP/FFmpeg 官方。
+
+## 2026-10-01 Rust × FFmpeg 專案調查（GitHub）
+
+只作參考，未引入依賴或程式碼：
+
+- [G1] nathanbabcock/ffmpeg-sidecar（MIT）：包裝 FFmpeg 可執行檔的 Rust 介面；其自動下載功能不符本案「不自動下載」原則，故只自建 PATH 探測。https://github.com/nathanbabcock/ffmpeg-sidecar
+- [G2] larksuite/rsmpeg（MIT）、zmwangx/rust-ffmpeg（WTFPL）：連結 libav*；Windows 需 FFmpeg dev 函式庫，與現行 CLI 路線與可攜發行不合。
+- [G3] jub0t/Concat（AGPL-3.0）、66HEX/frame（GPL-3.0）：授權與 MIT 不相容，不複製程式碼。
+

@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import type { ApiError, Asset, BackendMode, Envelope, Job, Project, Timeline, Track } from "./types";
 
@@ -18,6 +19,8 @@ function hasTauriRuntime() {
 export class StoryCutApi {
   readonly mode: BackendMode;
   private workspace: string | null = null;
+  private thumbnailActive = 0;
+  private readonly thumbnailWaiters: Array<() => void> = [];
   private readonly thumbnailCache = new Map<string, Promise<AssetThumbnail>>();
 
   constructor() {
@@ -63,12 +66,38 @@ export class StoryCutApi {
 
   async importMedia(): Promise<string[]> {
     if (!hasTauriRuntime()) return [];
-    const result = await open({ multiple: true, defaultPath: this.workspace ?? undefined, filters: [{ name: "影音與圖片", extensions: ["mp4", "mov", "mkv", "webm", "jpg", "jpeg", "png", "webp", "wav", "mp3"] }] });
+    const result = await open({ multiple: true, defaultPath: this.workspace ?? undefined, filters: [{ name: "影音與圖片", extensions: [...MEDIA_EXTENSIONS] }] });
     if (result === null) return [];
-    const paths = Array.isArray(result) ? result : [result];
+    return this.assertInWorkspace(Array.isArray(result) ? result : [result]);
+  }
+
+  /** Splits OS-dropped paths into importable media, a project file, and ignored entries. */
+  classifyDropped(paths: string[]): { media: string[]; project: string | null; ignored: number } {
+    const project = paths.length === 1 && /\.storycut\.json$/i.test(paths[0]) ? paths[0] : null;
+    const media = project ? [] : paths.filter((path) => MEDIA_EXTENSIONS.includes((path.split(".").pop() ?? "").toLowerCase() as (typeof MEDIA_EXTENSIONS)[number]));
+    return { media, project, ignored: project ? 0 : paths.length - media.length };
+  }
+
+  assertInWorkspace(paths: string[]): string[] {
     const outside = paths.filter((path) => !isWithinWorkspace(path, this.workspace));
     if (outside.length) throw new StoryCutApiError({ code: "PATH_DENIED", message: "素材必須位於目前專案工作區內。StoryCut 不會自動複製素材或放寬存取範圍。", retryable: false, details: { count: outside.length } });
     return paths;
+  }
+
+  /** Native OS file drops (Tauri reports real paths; HTML5 File objects do not). */
+  async onFileDrop(handlers: { onHover: (active: boolean) => void; onDrop: (paths: string[]) => void }): Promise<() => void> {
+    if (!hasTauriRuntime()) return () => {};
+    return getCurrentWebview().onDragDropEvent((event) => {
+      const payload = event.payload;
+      if (payload.type === "enter" || payload.type === "over") handlers.onHover(true);
+      else if (payload.type === "drop") { handlers.onHover(false); handlers.onDrop(payload.paths); }
+      else handlers.onHover(false);
+    });
+  }
+
+  async ffmpegInfo(): Promise<FfmpegInfo> {
+    if (!hasTauriRuntime()) throw this.unavailable("FFmpeg 狀態只能由 StoryCut 桌面版讀取。");
+    return await invoke<FfmpegInfo>("storycut_ffmpeg_info");
   }
 
   async chooseOutput(defaultPath: string): Promise<string | null> {
@@ -85,11 +114,11 @@ export class StoryCutApi {
 
   async readAssetThumbnail(projectId: string, asset: Asset): Promise<AssetThumbnail> {
     if (!hasTauriRuntime()) throw this.unavailable("素材縮圖只能由 StoryCut 桌面核心讀取。");
-    if (asset.kind !== "image") throw this.unavailable("目前只有已選取的圖片素材可產生縮圖。");
+    if (asset.kind === "audio") throw this.unavailable("聲音素材沒有畫面縮圖。");
     const key = [this.workspace ?? "", projectId, asset.id, asset.sha256 ?? ""].join("\u0000");
     const cached = this.thumbnailCache.get(key);
     if (cached) return cached;
-    const pending = invoke<AssetThumbnail>("storycut_read_asset_thumbnail", { projectId, assetId: asset.id })
+    const pending = this.thumbnailSlot(() => invoke<AssetThumbnail>("storycut_read_asset_thumbnail", { projectId, assetId: asset.id }))
       .then((thumbnail) => {
         if (thumbnail.asset_id !== asset.id || thumbnail.mime_type !== "image/png" || !thumbnail.data_url.startsWith("data:image/png;base64,")) {
           throw new Error("核心縮圖 bridge 回傳了不完整或非 PNG 資料。");
@@ -104,9 +133,28 @@ export class StoryCutApi {
     return pending;
   }
 
+  /** Runs at most two FFmpeg thumbnail decodes at a time so a large bin cannot spawn a process storm. */
+  private thumbnailSlot<T>(task: () => Promise<T>): Promise<T> {
+    const run = async () => {
+      while (this.thumbnailActive >= 2) await new Promise<void>((resolve) => this.thumbnailWaiters.push(resolve));
+      this.thumbnailActive += 1;
+      try { return await task(); }
+      finally { this.thumbnailActive -= 1; this.thumbnailWaiters.shift()?.(); }
+    };
+    return run();
+  }
+
   private unavailable(message: string) {
     return new StoryCutApiError({ code: "UNSUPPORTED_FEATURE", message, retryable: false, details: {} });
   }
+}
+
+export const MEDIA_EXTENSIONS = ["mp4", "mov", "mkv", "webm", "jpg", "jpeg", "png", "webp", "wav", "mp3"] as const;
+
+export interface FfmpegInfo {
+  available: boolean;
+  version: string | null;
+  encoders: Record<string, boolean>;
 }
 
 export interface AssetThumbnail {

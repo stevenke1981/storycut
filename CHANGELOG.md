@@ -1,5 +1,13 @@
 # Changelog
 
+## 桌面拖放與影片縮圖 — 2026-10-01
+
+- 桌面版拖放改為指標事件實作：素材庫→軌道、片段在軌道間移動（保留抓取偏移、幀對齊、落點標線、軌道相容性高亮、邊緣自動捲動、Esc 取消）。原因：Tauri 在 Windows 預設啟用原生拖放，會使 HTML5 DnD 失效。
+- 新增 OS 檔案拖入：把影音／圖片拖進視窗即呼叫 `storycut_media_import`（仍限工作區內，不複製、不放寬授權）；拖入單一 `.storycut.json` 則開啟專案。
+- 素材庫顯示影片／圖片縮圖（`thumbnail` 濾鏡取代表性幀，避開黑場片頭；同時最多 2 個 FFmpeg 解碼）。
+- 新增唯讀 `storycut_ffmpeg_info`（桌面橋接）：顯示 FFmpeg 版本與 libx264／aac 是否可用；NVENC 選項改為停用，與核心「尚未驗證」一致。
+- 未驗證：原生 OS 檔案拖入需在 Tauri 視窗實測；本次僅以瀏覽器預覽模式實測指標拖放，並以真 FFmpeg 跑縮圖測試。
+
 ## 夜燈說書規格（Night Lantern profile）— 2026-09-29
 
 - 新增 `storycut_narration_assemble`：旁白段落決定畫面長度，原生影片凍格把手、不縮短片長的置中淡化、側鏈壓低配樂、alpha 串場字卡、回傳段落時間供字幕對時。
