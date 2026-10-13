@@ -40,6 +40,7 @@
 5. FFmpeg 9 将合法 1000 Hz PCM WAV auto-probe 成 MPEG-TS；指定 WAV 可正常解碼。探測、編碼與響度量測均依實際 RIFF/RF64/RIFX/BW64 + WAVE 簽名指定 demuxer，不依副檔名猜測。
 6. 真截圖發現 toast 遮住工作卡片及錯誤文字不換行，已移開 toast、補捲動、換行與按鈕尺寸。
 7. 第一輪 CI 的 FFmpeg 8.1.1 取消停在 `cancelling` 超過 30 秒，72 圖與 Night Lantern 已通過。Windows 啟動器退出後，後代程序可能仍持有 stdout／stderr；現在在 join 讀取器前關閉 worker 自己的 Job Object，停止所屬程序群組。新增真啟動器／後代持管線測試，取消在 0.06 秒完成；維持原本 30 秒終態驗收門檻，推送後再次核對 CI。
+8. 第二輪 CI `38340016141` 在 FFmpeg 8.1.1 通過全部核心、音訊、72 圖、Night Lantern 與非同步匯出驗收；桌面 beforeBuild 單獨建置 daemon 改變依賴 feature 組合，重新連結仍在執行的 Windows daemon 時遭遇 file lock。準備流程改用與 CLI／CI 相同的 CLI＋daemon 組合；本機實測存活 owner 下完成準備與前端建置，結束後 owner 仍存活，未終止程序。
 
 ## 可追溯證據
 
@@ -52,6 +53,7 @@
 - `target/night-lantern-acceptance/run-9tiq6o9r/夜燈說書/report.json`。
 - `target/async-export-acceptance/run-u0eml5ye/非同步 export/report.json`。
 - CI 取消修正後重跑：`target/async-export-acceptance/run-0ra25vq0/非同步 export/report.json`（PASS），`target/ci-cancel-fix-build.log` 與 `target/ci-cancel-fix-acceptance.log`。
+- 存活 daemon 下桌面準備：`target/live-desktop-prepare-report.json`（PASS）、`target/live-desktop-prepare.log`。
 - `target/ui-export-evidence/{report.json,bridge-calls.jsonl,running.png,cancelled.png,succeeded.png,failed.png}`。
 
 CI 已加入 auto-start／async lifecycle gate 與 report 上傳；推送 SHA 與 CI 執行 URL 以交付訊息為準。
