@@ -16,11 +16,11 @@
 
 | 驗證 | 結果 |
 |---|---|
-| Rust workspace | 86 項通過；包含真 FFmpeg render、字幕、旁白、響度、交易、MCP 與 Windows IPC |
+| Rust workspace | 87 項通過，另有 1 個 subprocess fixture ignored；包含真 FFmpeg render、字幕、旁白、響度、交易、MCP 與 Windows IPC |
 | Desktop bridge | 4 項通過；debug GUI 可建置，資源內含 matching daemon |
 | 契約與範例 | 61 項通過；36 個目標工具、19 操作、3 個輸出範例；不是 App runtime 證據 |
 | Frontend | TypeScript + Vite build 通過 |
-| Lint | workspace 全 target Clippy 通過，新增 jobs/control/windows_spawn 模組無警告；既有 Rust 1.99 style／deprecated warnings 保留，`-D warnings` 並非全乾淨 |
+| Lint | workspace 與 desktop 全 target Clippy 通過，新增 jobs/control/windows_spawn 模組無警告；既有 Rust 1.99 style／deprecated warnings、縮圖 borrow 與測試模組排列警告保留，`-D warnings` 並非全乾淨 |
 | Format／diff | root Rust format、desktop Rust format、git diff whitespace 檢查通過 |
 | CLI auto-start | stdout/stderr EOF 3.1123 秒；daemon 在 CLI 結束後存活；中文、空白、尾端 separator 通過 |
 | Audio offset | 真實 MP4 解碼 240,000 samples，2 秒前／3 秒後 RMS=0，2–3 秒音訊 RMS 約 7,998 |
@@ -39,17 +39,19 @@
 4. FFmpeg 9 移除 `-filter_complex_script`，改用 `-/filter_complex` 檔案載入語法。[FFmpeg 官方說明](https://ffmpeg.org/ffmpeg.html#Options)
 5. FFmpeg 9 将合法 1000 Hz PCM WAV auto-probe 成 MPEG-TS；指定 WAV 可正常解碼。探測、編碼與響度量測均依實際 RIFF/RF64/RIFX/BW64 + WAVE 簽名指定 demuxer，不依副檔名猜測。
 6. 真截圖發現 toast 遮住工作卡片及錯誤文字不換行，已移開 toast、補捲動、換行與按鈕尺寸。
+7. 第一輪 CI 的 FFmpeg 8.1.1 取消停在 `cancelling` 超過 30 秒，72 圖與 Night Lantern 已通過。Windows 啟動器退出後，後代程序可能仍持有 stdout／stderr；現在在 join 讀取器前關閉 worker 自己的 Job Object，停止所屬程序群組。新增真啟動器／後代持管線測試，取消在 0.06 秒完成；維持原本 30 秒終態驗收門檻，推送後再次核對 CI。
 
 ## 可追溯證據
 
 這些本機 report／媒體／PNG 位於 ignored `target`，來源原檔保留：
 
-- `target/final-rust-tests.log`、`target/final-desktop-tests.log`、`target/final-desktop-build.log`、`target/final-clippy.log`、`target/final-ipc-tests.log`。
+- `target/final-rust-tests.log`、`target/final-desktop-tests.log`、`target/final-desktop-build.log`、`target/final-clippy.log`、`target/final-desktop-clippy.log`、`target/final-ipc-tests.log`、`target/ci-cancel-fix-test.log`。
 - `target/auto-start-acceptance/run-ls37s_vm/自動啟動 with spaces/report.json`。
 - `target/audio-acceptance-stdlib/run-7ystvihr/report.json`。
 - `target/story-workflow-acceptance/run-q4boa4mg/夜燈說書/report.json`。
 - `target/night-lantern-acceptance/run-9tiq6o9r/夜燈說書/report.json`。
 - `target/async-export-acceptance/run-u0eml5ye/非同步 export/report.json`。
+- CI 取消修正後重跑：`target/async-export-acceptance/run-0ra25vq0/非同步 export/report.json`（PASS），`target/ci-cancel-fix-build.log` 與 `target/ci-cancel-fix-acceptance.log`。
 - `target/ui-export-evidence/{report.json,bridge-calls.jsonl,running.png,cancelled.png,succeeded.png,failed.png}`。
 
 CI 已加入 auto-start／async lifecycle gate 與 report 上傳；推送 SHA 與 CI 執行 URL 以交付訊息為準。

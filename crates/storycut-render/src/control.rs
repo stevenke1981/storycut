@@ -180,6 +180,11 @@ fn run(
             }
         }
     };
+    // A launcher (for example a PATH shim) can exit before its real process.
+    // Close this worker's job before joining readers: surviving descendants
+    // still own the pipe writers and would otherwise keep those joins blocked.
+    #[cfg(windows)]
+    drop(_ownership);
     let (stdout, count) = out
         .join()
         .map_err(|_| std::io::Error::other("stdout reader stopped"))??;
@@ -233,5 +238,81 @@ impl Drop for ProcessOwnership {
         unsafe {
             windows_sys::Win32::Foundation::CloseHandle(self.0);
         }
+    }
+}
+
+#[cfg(all(test, windows))]
+mod tests {
+    use super::*;
+    use std::time::Instant;
+
+    #[test]
+    #[ignore = "subprocess fixture; invoked by cancellation test"]
+    fn pipe_holding_launcher() {
+        let role = std::env::var("STORYCUT_PIPE_FIXTURE_ROLE").unwrap();
+        if role == "child" {
+            std::fs::write(
+                std::env::var_os("STORYCUT_PIPE_FIXTURE_READY").unwrap(),
+                b"ready",
+            )
+            .unwrap();
+            std::thread::sleep(Duration::from_secs(20));
+        } else {
+            let mut child = fixture_command("child").spawn().unwrap();
+            assert!(child.wait().unwrap().success());
+        }
+    }
+
+    fn fixture_command(role: &str) -> Command {
+        let mut command = Command::new(std::env::current_exe().unwrap());
+        command
+            .args([
+                "--exact",
+                "control::tests::pipe_holding_launcher",
+                "--ignored",
+                "--nocapture",
+            ])
+            .env("STORYCUT_PIPE_FIXTURE_ROLE", role);
+        command
+    }
+
+    #[test]
+    fn cancellation_closes_descendant_pipe_writers_before_joining_readers() {
+        let ready = std::env::temp_dir().join(format!(
+            "storycut-pipe-ready-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let control = RenderControl::default();
+        let cancel = control.clone();
+        let marker = ready.clone();
+        let canceller = std::thread::spawn(move || {
+            let deadline = Instant::now() + Duration::from_secs(10);
+            while !marker.exists() && Instant::now() < deadline {
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            let child_started = marker.exists();
+            cancel.cancel();
+            child_started
+        });
+        let started = Instant::now();
+        let result = with_control(&control, || {
+            fixture_command("launcher")
+                .env("STORYCUT_PIPE_FIXTURE_READY", &ready)
+                .controlled_output()
+        });
+        assert!(
+            canceller.join().unwrap(),
+            "descendant fixture did not start"
+        );
+        let _ = std::fs::remove_file(ready);
+        assert!(matches!(result, Err(RenderError::Cancelled)));
+        assert!(
+            started.elapsed() < Duration::from_secs(10),
+            "reader waited for surviving descendant"
+        );
     }
 }
