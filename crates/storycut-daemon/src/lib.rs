@@ -1,7 +1,7 @@
 //! Workspace-scoped StoryCut command owner and private local IPC server.
 //!
-//! The first version is deliberately a synchronous command server. It does not
-//! claim to own background render jobs or support cancellation.
+//! Edits are serialized by the command dispatcher. Exports run in bounded
+//! background workers so status and cancellation remain available over IPC.
 
 mod protocol;
 mod server;

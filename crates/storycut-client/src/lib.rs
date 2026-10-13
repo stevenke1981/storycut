@@ -13,6 +13,8 @@ use storycut_daemon::{
 };
 
 pub use storycut_daemon::{DaemonRequest, RemoteError};
+#[cfg(windows)]
+mod windows_spawn;
 
 #[derive(Debug, Clone)]
 pub struct DaemonClient {
@@ -117,21 +119,10 @@ impl DaemonClient {
         }
         #[cfg(windows)]
         {
-            use std::os::windows::process::CommandExt;
-            const CREATE_NO_WINDOW: u32 = 0x0800_0000;
             if !owner_was_overloaded {
-                std::process::Command::new(daemon_executable)
-                    .arg("serve")
-                    .arg("--workspace")
-                    .arg(workspace)
-                    .stdin(std::process::Stdio::null())
-                    .stdout(std::process::Stdio::null())
-                    .stderr(std::process::Stdio::null())
-                    .creation_flags(CREATE_NO_WINDOW)
-                    .spawn()
-                    .map_err(|error| {
-                        DaemonError::Initialization(format!("could not start daemon: {error}"))
-                    })?;
+                windows_spawn::launch(daemon_executable, workspace).map_err(|error| {
+                    DaemonError::Initialization(format!("could not start daemon: {error}"))
+                })?;
             }
             loop {
                 let remaining = deadline.saturating_duration_since(Instant::now());
@@ -166,4 +157,59 @@ impl DaemonClient {
 
 fn uuid_v4() -> String {
     uuid::Uuid::new_v4().to_string()
+}
+
+/// Shared application entry point. Windows adapters connect to the same owner;
+/// the direct portable core remains available on other platforms.
+pub fn dispatch(
+    workspace: &Path,
+    tool: &str,
+    args: Value,
+) -> Result<Value, storycut_command::CommandError> {
+    #[cfg(windows)]
+    {
+        let executable = std::env::current_exe()
+            .map_err(|e| storycut_command::CommandError::new("INTERNAL_ERROR", e.to_string()))?;
+        let sibling = executable.with_file_name("storycut-daemon.exe");
+        let bundled = executable
+            .parent()
+            .unwrap_or_else(|| Path::new("."))
+            .join("binaries/storycut-daemon.exe");
+        // `cargo tauri dev` places the GUI in desktop/src-tauri/target/debug.
+        // Packaged apps use the adjacent executable exclusively.
+        let daemon = if sibling.is_file() {
+            sibling
+        } else if bundled.is_file() {
+            bundled
+        } else {
+            let development = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .join("../../target/debug/storycut-daemon.exe");
+            if cfg!(debug_assertions) && development.is_file() {
+                development
+            } else {
+                sibling
+            }
+        };
+        let client = DaemonClient::connect_or_start(workspace, &daemon, Duration::from_secs(10))
+            .map_err(|e| {
+                storycut_command::CommandError::new("DAEMON_UNAVAILABLE", e.to_string())
+            })?;
+        let response = client.tool_call(tool, args).map_err(|e| {
+            storycut_command::CommandError::new("DAEMON_UNAVAILABLE", e.to_string())
+        })?;
+        if let Some(error) = response.error {
+            return Err(storycut_command::CommandError {
+                code: error.code,
+                message: error.message,
+                details: error.details,
+            });
+        }
+        response.result.ok_or_else(|| {
+            storycut_command::CommandError::new("INTERNAL_ERROR", "Daemon response has no result")
+        })
+    }
+    #[cfg(not(windows))]
+    {
+        storycut_command::dispatch(workspace, tool, args)
+    }
 }

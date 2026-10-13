@@ -13,6 +13,7 @@ Run after building the CLI:
 import argparse
 import hashlib
 import json
+from export_jobs import await_export
 import math
 from pathlib import Path
 import struct
@@ -111,7 +112,7 @@ def main():
         response = json.loads(result.stdout)
         (work / f"response-{counter:03}.json").write_text(json.dumps(response, ensure_ascii=False, indent=2), encoding="utf-8")
         assert result.returncode == 0 and response["ok"], (tool, response, result.stderr)
-        return response
+        return await_export(call, response) if tool == "storycut_render_start" else response
 
     try:
         colors = {"場景-1.png": "0xc03030", "場景-2.png": "0x3050c0", "場景-3.png": "0xc0a030",

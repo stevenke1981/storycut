@@ -288,7 +288,7 @@ fn dispatch_request(workspace: &Path, request: DaemonRequest) -> DaemonResponse 
         );
     }
 
-    match storycut_command::dispatch(workspace, tool, args) {
+    match storycut_command::dispatch_background(workspace, tool, args) {
         Ok(mut result) => {
             if let Some(object) = result.as_object_mut() {
                 object.insert("request_id".to_owned(), Value::String(request_id.clone()));
@@ -300,8 +300,8 @@ fn dispatch_request(workspace: &Path, request: DaemonRequest) -> DaemonResponse 
                         Value::String(env!("CARGO_PKG_VERSION").to_owned()),
                     );
                     data.insert("daemon_ipc".to_owned(), Value::Bool(true));
-                    data.insert("background_render_jobs".to_owned(), Value::Bool(false));
-                    data.insert("job_cancel".to_owned(), Value::Bool(false));
+                    data.insert("background_render_jobs".to_owned(), Value::Bool(true));
+                    data.insert("job_cancel".to_owned(), Value::Bool(true));
                 }
             }
             DaemonResponse {

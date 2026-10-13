@@ -12,6 +12,7 @@ __pycache__/
 /desktop/dist/
 /desktop/src-tauri/target/
 /desktop/src-tauri/gen/
+/desktop/src-tauri/binaries/
 /desktop/tsconfig.tsbuildinfo
 /crates/storycut-render/tests/media-generated/
 /.storycut/

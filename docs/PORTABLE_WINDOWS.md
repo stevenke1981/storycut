@@ -12,3 +12,5 @@ Agent 可在同一工作區使用 `storycut-cli.exe`：
 ```
 
 介面詳見 `docs/CLI.md`、`docs/MCP.md`。目前功能與真實驗收範圍詳見 `docs/IMPLEMENTATION_STATUS.md`。CLI/MCP 與桌面版須指向相同的工作區才能共用工程。
+
+2026-10-13：portable archive 同時包含 `storycut-daemon.exe`，需保留它在 GUI/CLI 執行檔旁。安裝器建置把它放入 `binaries` resource 目錄；CLI/GUI 自動連接工作區唯一 daemon。安裝器建置配置已更新，但本輪未做乾淨機器安裝驗收。

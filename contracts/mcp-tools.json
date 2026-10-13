@@ -104,6 +104,15 @@
                   "workspace_policy_summary": {
                     "type": "string",
                     "maxLength": 65536
+                  },
+                  "daemon_ipc": {
+                    "type": "boolean"
+                  },
+                  "background_render_jobs": {
+                    "type": "boolean"
+                  },
+                  "job_cancel": {
+                    "type": "boolean"
                   }
                 },
                 "required": [
@@ -256,6 +265,15 @@
                     "workspace_policy_summary": {
                       "type": "string",
                       "maxLength": 65536
+                    },
+                    "daemon_ipc": {
+                      "type": "boolean"
+                    },
+                    "background_render_jobs": {
+                      "type": "boolean"
+                    },
+                    "job_cancel": {
+                      "type": "boolean"
                     }
                   },
                   "required": [
@@ -16909,6 +16927,16 @@
                     "type": "null"
                   }
                 ]
+              },
+              "failure_message": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
               }
             },
             "required": [
@@ -17546,6 +17574,16 @@
                   "target_offset_lu"
                 ],
                 "additionalProperties": false
+              },
+              "failure_message": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
               }
             },
             "required": [
@@ -18206,6 +18244,16 @@
                   "target_offset_lu"
                 ],
                 "additionalProperties": false
+              },
+              "failure_message": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
               }
             },
             "required": [
@@ -18786,6 +18834,16 @@
                   "target_offset_lu"
                 ],
                 "additionalProperties": false
+              },
+              "failure_message": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
               }
             },
             "required": [
@@ -19198,6 +19256,16 @@
                     "type": "null"
                   }
                 ]
+              },
+              "failure_message": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
               }
             },
             "required": [
@@ -19566,6 +19634,16 @@
                       "JOB_INTERRUPTED",
                       "INTERNAL_ERROR"
                     ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "failure_message": {
+                "anyOf": [
+                  {
+                    "type": "string"
                   },
                   {
                     "type": "null"

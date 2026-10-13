@@ -1,6 +1,7 @@
 """CLI-to-MP4 acceptance: a one-second tone starts two seconds into the mix."""
 
 import json
+from export_jobs import await_export
 import math
 from pathlib import Path
 import struct
@@ -28,11 +29,12 @@ def call(name, args):
         text=True,
         encoding="utf-8",
         check=False,
+        timeout=20,
     )
     response = json.loads(result.stdout)
     if result.returncode or not response.get("ok"):
         raise RuntimeError(f"{name}: exit={result.returncode}; response={response}; stderr={result.stderr}")
-    return response
+    return await_export(call, response) if name == "storycut_render_start" else response
 
 
 def tone(path):

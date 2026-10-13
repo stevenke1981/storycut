@@ -6,7 +6,7 @@
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://127.0.0.1:1420",
-    "beforeBuildCommand": "npm run build",
+    "beforeBuildCommand": "powershell -NoProfile -File ../scripts/prepare-desktop.ps1",
     "frontendDist": "../dist"
   },
   "app": {
@@ -27,6 +27,7 @@
   },
   "bundle": {
     "active": true,
+    "resources": ["binaries/storycut-daemon.exe"],
     "targets": ["msi", "nsis"],
     "icon": ["icons/icon.ico", "icons/32x32.png"]
   }

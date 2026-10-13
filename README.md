@@ -2,7 +2,7 @@
 
 目前提供 Rust 共用剪輯核心、Tauri 2 + React 桌面介面、JSON CLI、stdio MCP 與 FFmpeg 渲染。工作區內的工程、素材、時間軸和歷史由同一核心管理；桌面版和 Agent 指令共用 `storycut-command`。
 
-這是開發中的可執行版本。實際可用工具以 `storycut_capabilities` 和 MCP `tools/list` 為準。尚未完成背景工作取消／完整重啟恢復、全部字幕樣式、GPU 編碼與發行安裝驗收；[實作與驗收紀錄](docs/IMPLEMENTATION_STATUS.md) 列出已跑過的項目與限制。`contracts/` 的工具包含目標契約，並非全部已實作。
+這是開發中的可執行版本。實際可用工具以 `storycut_capabilities` 和 MCP `tools/list` 為準。Windows 背景匯出、進度與取消已實作，使用方式見 [背景匯出](docs/ASYNC_EXPORT.md)。尚未完成背景預覽取消／完整重啟續算、全部字幕樣式、GPU 編碼與發行安裝驗收；[實作與驗收紀錄](docs/IMPLEMENTATION_STATUS.md) 列出已跑過的項目與限制。`contracts/` 的工具包含目標契約，並非全部已實作。
 
 ## 夜燈說書製作
 
@@ -15,7 +15,7 @@
 需要 Rust、Node.js、npm、FFmpeg/ffprobe（在 `PATH`，字幕燒錄需 FFmpeg 有 libass）。在本目錄執行：
 
 ```powershell
-cargo build -p storycut-cli --locked
+cargo build -p storycut-cli -p storycut-daemon --locked -j 1
 cd desktop
 npm ci
 npm run tauri dev

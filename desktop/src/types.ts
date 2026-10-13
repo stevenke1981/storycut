@@ -139,6 +139,7 @@ export interface Job {
     sha256: string;
     size_bytes: number;
   }>;
+  failure_message?: string | null;
   failure_code: string | null;
 }
 

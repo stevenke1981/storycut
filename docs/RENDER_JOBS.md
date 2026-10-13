@@ -34,4 +34,6 @@ job_get(include_preview=true) 只對已成功單幀預覽回有界 PNG content�
 
 ## 實作狀態
 
+2026-10-13：Windows GUI/CLI/MCP 已共用 daemon 背景匯出，提供實測進度、取消、失败訊息與重啟中斷偵測；預覽仍同步。最新規則與回歸見 [背景匯出](ASYNC_EXPORT.md) 與 [實測報告](ASYNC_EXPORT_VALIDATION.md)。下列為此輪之前的實作紀錄。
+
 FFmpeg 真實 PNG 預覽、含混音的短 MP4 預覽、MP4 輸出及部分媒體 QA 已實作，並以 Windows 真素材驗證。Windows daemon/client IPC 骨架已有單一工作區 lease、具目前使用者 SID 限制的 named pipe 和有界佇列，但 GUI/CLI/MCP 尚未接入，工作仍同步執行；工作事件、背景渲染與中途取消仍待實作。詳見 [實作與驗收紀錄](IMPLEMENTATION_STATUS.md)。規格驗證器只能檢查資料關係，不足以證明工作生命周期已通過。

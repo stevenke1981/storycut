@@ -44,7 +44,7 @@ storycut --json job get --job-id "<上一步回傳的job_id>"
 
 --json 一次輸出一個 envelope object，不混進開機 banner、progress bar、FFmpeg 日誌。正常互動文字模式可以人類可讀，但 Agent 應用 --json。
 
-`--jsonl`、`job events --follow` 尚未實作。`render_start` 與 `preview_frame` 目前同步執行，回傳時工作已經終止；可再用 `job_get` 查持久化結果。中斷後若已持久化 ready manifest，`job_get` 可核對 SHA-256 並完成發布；更早中斷會回 `JOB_INTERRUPTED`。實際中途取消尚未實作。
+Windows `render_start` 現在回傳背景匯出工作；用 `job_get` 查進度與終態、`job_cancel` 取消。詳細使用、檔案保護與重啟限制見 [背景匯出](ASYNC_EXPORT.md)。`preview_frame`、`preview_range` 仍同步；`--jsonl`、`job events --follow` 尚未實作。中斷後已有 ready manifest 可核對並完成發佈；更早中斷標為 `interrupted`，不自動續算。
 
 `storycut_preview_range` 可輸出含混音的短 MP4，亦為同步工作。請求需包含 `project_id`、固定 `revision`、`idempotency_key`、`width`（160–1920 的偶數）、`include_subtitles`、`start_tick` 與 `duration_ticks`。起點須對齊工程影格，範圍不得超出工程長度；成功後從 `data.job.artifacts` 取得工作區內 MP4 相對路徑、大小及 SHA-256。此工具不把整段影片嵌入 MCP 回應；可再用 `storycut_job_get` 回讀同一工作。
 

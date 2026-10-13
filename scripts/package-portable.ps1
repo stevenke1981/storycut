@@ -8,9 +8,10 @@ $config = Get-Content -LiteralPath (Join-Path $repoRoot 'desktop/src-tauri/tauri
 $version = [string]$config.version
 $archiveName = "StoryCut-$version-portable-windows-x64.zip"
 $desktopExe = Join-Path $repoRoot 'desktop/src-tauri/target/release/storycut-desktop.exe'
+$daemonExe = Join-Path $repoRoot 'target/release/storycut-daemon.exe'
 $cliExe = Join-Path $repoRoot 'target/release/storycut.exe'
 
-foreach ($required in @($desktopExe, $cliExe)) {
+foreach ($required in @($desktopExe, $cliExe, $daemonExe)) {
     if (-not (Test-Path -LiteralPath $required -PathType Leaf)) {
         throw "Release executable is missing: $required. Build CLI and desktop release first."
     }
@@ -19,6 +20,7 @@ foreach ($required in @($desktopExe, $cliExe)) {
 $files = @(
     @{ Source = $desktopExe; Entry = 'StoryCut.exe' },
     @{ Source = $cliExe; Entry = 'storycut-cli.exe' },
+    @{ Source = $daemonExe; Entry = 'storycut-daemon.exe' },
     @{ Source = (Join-Path $repoRoot 'scripts/Start-StoryCut.ps1'); Entry = 'Start-StoryCut.ps1' },
     @{ Source = (Join-Path $repoRoot 'docs/PORTABLE_WINDOWS.md'); Entry = 'README-portable.md' },
     @{ Source = (Join-Path $repoRoot 'docs/CLI.md'); Entry = 'docs/CLI.md' },

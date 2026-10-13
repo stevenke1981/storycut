@@ -29,8 +29,9 @@
   },
   "output_examples": {
     "render-start.response.json": "storycut_render_start",
-    "revision-conflict.response.json": "storycut_timeline_apply"
+    "revision-conflict.response.json": "storycut_timeline_apply",
+    "render-failed.response.json": "storycut_job_get"
   },
-  "tool_count": 35,
+  "tool_count": 36,
   "operation_count": 19
 }

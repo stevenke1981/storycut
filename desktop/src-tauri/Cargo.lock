@@ -2918,6 +2918,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6ce2be8dc25455e1f91df71bfa12ad37d7af1092ae736f3a6cd0e37bc7810596"
 
 [[package]]
+name = "storycut-client"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+ "storycut-command",
+ "storycut-daemon",
+ "thiserror 2.0.21",
+ "uuid",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
 name = "storycut-command"
 version = "0.1.0"
 dependencies = [
@@ -2943,12 +2955,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "storycut-daemon"
+version = "0.1.0"
+dependencies = [
+ "fs2",
+ "serde",
+ "serde_json",
+ "sha2",
+ "storycut-command",
+ "thiserror 2.0.21",
+ "uuid",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
 name = "storycut-desktop"
 version = "0.1.0"
 dependencies = [
  "base64 0.22.1",
  "serde_json",
  "sha2",
+ "storycut-client",
  "storycut-command",
  "storycut-core",
  "tauri",
@@ -2967,6 +2994,7 @@ dependencies = [
  "storycut-core",
  "storycut-subtitle",
  "thiserror 2.0.21",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

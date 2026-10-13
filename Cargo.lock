@@ -716,6 +716,7 @@ name = "storycut-cli"
 version = "0.1.0"
 dependencies = [
  "serde_json",
+ "storycut-client",
  "storycut-command",
  "storycut-mcp",
 ]
@@ -725,9 +726,11 @@ name = "storycut-client"
 version = "0.1.0"
 dependencies = [
  "serde_json",
+ "storycut-command",
  "storycut-daemon",
  "thiserror",
  "uuid",
+ "windows-sys",
 ]
 
 [[package]]
@@ -798,6 +801,7 @@ dependencies = [
  "storycut-subtitle",
  "tempfile",
  "thiserror",
+ "windows-sys",
 ]
 
 [[package]]

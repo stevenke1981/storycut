@@ -7,7 +7,7 @@ $repoRoot = Split-Path -Parent $PSScriptRoot
 New-Item -ItemType Directory -Force -Path $Workspace | Out-Null
 Push-Location $repoRoot
 try {
-    cargo build -p storycut-cli
+    cargo build -p storycut-cli -p storycut-daemon -j 1
     if ($LASTEXITCODE -ne 0) { throw 'Rust build failed.' }
     Push-Location (Join-Path $repoRoot 'desktop')
     try {

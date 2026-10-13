@@ -7,8 +7,8 @@ $ErrorActionPreference = 'Stop'
 $repoRoot = Split-Path -Parent $PSScriptRoot
 Push-Location $repoRoot
 try {
-    if ($Target -in @('cli', 'portable', 'all')) {
-        cargo build --release -p storycut-cli --locked
+    if ($Target -in @('cli', 'desktop', 'portable', 'all')) {
+        cargo build --release -p storycut-cli -p storycut-daemon --locked -j 1
         if ($LASTEXITCODE -ne 0) { throw 'CLI build failed.' }
     }
     if ($Target -in @('desktop', 'portable', 'all')) {

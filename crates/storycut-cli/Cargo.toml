@@ -9,6 +9,7 @@ name = "storycut"
 path = "src/main.rs"
 
 [dependencies]
+storycut-client = { path = "../storycut-client" }
 serde_json = "1"
 storycut-command = { path = "../storycut-command" }
 storycut-mcp = { path = "../storycut-mcp" }

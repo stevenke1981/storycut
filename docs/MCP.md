@@ -52,7 +52,7 @@ Agent host 把此命令作子程序啟動；目前 adapter 直接呼叫共用 Ru
 
 ## 工作與進度
 
-目前 preview_frame、preview_range 與 render_start 均同步執行，tools/call 回傳時工作已為終態。`job_get` 可回讀持久化工作；`job_events`、背景 daemon 與 `job_cancel` 仍是目標契約，不依賴特定 client 支援 MCP tasks 擴充；初始化不宣告未實作的 tasks。
+Windows render_start 經共享 daemon 回傳背景匯出工作，同一 stdio 連線可繼續 ping 或呼叫其他工具；以 `job_get` 查进度、`job_cancel` 取消。EOF 不取消 daemon 工作。preview_frame/preview_range 仍同步；`job_events` 與自動續算尚未實作。此功能不依賴 MCP tasks 擴充，初始化不宣告 tasks。詳見 [背景匯出](ASYNC_EXPORT.md)。
 
 協議 cancellation/progress 適用進行中的 request；已回傳 job_id 的工作要呼叫 job_cancel，不能拿過期 request_id 取消。取消 adapter 等待或斷線不等於取消 daemon 工作。[M5,M6]
 

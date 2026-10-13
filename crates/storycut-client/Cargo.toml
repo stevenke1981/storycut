@@ -5,7 +5,11 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
+storycut-command = { path = "../storycut-command" }
 serde_json.workspace = true
 thiserror.workspace = true
 uuid.workspace = true
 storycut-daemon = { path = "../storycut-daemon" }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys.workspace = true

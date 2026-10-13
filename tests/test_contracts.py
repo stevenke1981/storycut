@@ -26,6 +26,22 @@ class ContractTests(unittest.TestCase):
         self.assertEqual(report['tool_contracts'], 36)
         self.assertEqual(report['atomic_operation_types'], 19)
 
+    def test_job_failure_message_is_optional_but_never_an_object(self):
+        response = load('examples/render-failed.response.json')['result']['structuredContent']
+        schema = self.tools['storycut_job_get']['outputSchema']
+        self.assertFalse(schema_errors(response, schema))
+        response['data']['job']['failure_message'] = {'detail': 'wrong type'}
+        self.assertTrue(schema_errors(response, schema))
+        del response['data']['job']['failure_message']
+        self.assertFalse(schema_errors(response, schema))
+
+    def test_cancel_requires_an_idempotency_key_and_rejects_extra_fields(self):
+        schema = self.tools['storycut_job_cancel']['inputSchema']
+        request = {'job_id': 'render-example', 'idempotency_key': 'cancel-example'}
+        self.assertFalse(schema_errors(request, schema))
+        self.assertTrue(schema_errors({'job_id': 'render-example'}, schema))
+        self.assertTrue(schema_errors({**request, 'force': True}, schema))
+
     def test_multitrack_28_seconds(self):
         self.assertFalse(validate_model(self.p))
         self.assertEqual(duration_ticks(self.p), 28 * TPS)

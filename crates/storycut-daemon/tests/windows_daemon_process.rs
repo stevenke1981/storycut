@@ -52,10 +52,13 @@ fn single_owner_client_eof_and_project_round_trip() {
     let parent = tempfile::tempdir().unwrap();
     let workspace = parent.path().join("剪輯 workspace with spaces");
     std::fs::create_dir(&workspace).unwrap();
+    // Larger than one client read buffer: an immediate disconnect used to
+    // discard the tail of otherwise committed replies.
+    let large_name = "Daemon IPC acceptance ".repeat(2500);
     let store = ProjectStore::create(
         &workspace,
         "acceptance.storycut.json",
-        "Daemon IPC acceptance",
+        &large_name,
         Canvas::default(),
         48_000,
         "daemon-ipc-fixture",
@@ -148,6 +151,7 @@ fn single_owner_client_eof_and_project_round_trip() {
         project["result"]["data"]["project"]["project_id"],
         project_id
     );
+    assert_eq!(project["result"]["data"]["project"]["name"], large_name);
 
     // Each helper process closed its pipe after one response; the owner remains.
     assert!(

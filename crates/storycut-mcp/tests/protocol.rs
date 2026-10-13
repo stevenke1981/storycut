@@ -355,7 +355,7 @@ fn client_drives_initialize_tools_call_ping_and_eof() {
 
     client.send_value(&json!({
         "jsonrpc":"2.0","id":6,"method":"tools/call",
-        "params":{"name":"storycut_job_cancel","arguments":{}}
+        "params":{"name":"storycut_job_events","arguments":{}}
     }));
     let response = client.receive();
     assert_eq!(

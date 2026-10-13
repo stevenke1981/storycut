@@ -7,6 +7,8 @@ on:
 jobs:
   validate:
     runs-on: windows-latest
+    env:
+      CARGO_BUILD_JOBS: '1'
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -47,19 +49,24 @@ jobs:
       - name: Desktop bridge tests and locked dependencies
         run: cargo test --manifest-path desktop/src-tauri/Cargo.toml --locked --lib
       - name: CLI build
-        run: cargo build --release -p storycut-cli --locked
+        run: cargo build --release -p storycut-cli -p storycut-daemon --locked
       - name: CLI real audio offset acceptance
         run: python -X utf8 tests/product_acceptance/audio_offset.py
+      - name: CLI auto-start and detached stdout EOF
+        run: python -X utf8 tests/product_acceptance/auto_start.py --cli target/release/storycut.exe
       - name: Story assembly, MCP motion and real 72-image render
         run: python -X utf8 tests/product_acceptance/story_workflow.py
       - name: Night Lantern narration, holds, ducking and ASS acceptance
         run: python -X utf8 tests/product_acceptance/night_lantern.py --cli target/release/storycut.exe
+      - name: Async export lifecycle acceptance
+        run: python -X utf8 tests/product_acceptance/async_export.py --cli target/release/storycut.exe
       - name: Upload media acceptance reports
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: media-acceptance-reports
           path: |
+            target/async-export-acceptance/**/report.json
             target/night-lantern-acceptance/**/report.json
             target/story-workflow-acceptance/**/report.json
           if-no-files-found: warn

@@ -21,12 +21,15 @@ cargo run -p storycut-daemon -- request --workspace "D:\StoryCut Projects\My Pro
 ```
 
 The client library is `storycut-client`; it offers capabilities, project read,
-and shared command dispatch calls. Queue dispatch is synchronous. Capabilities
-explicitly report `background_render_jobs: false` and `job_cancel: false`.
+and shared command dispatch calls. Edits are serialized; export jobs run in
+bounded background workers. Capabilities report `background_render_jobs: true`
+and `job_cancel: true`. See [background exports](../../docs/ASYNC_EXPORT.md).
 Timeouts currently bound waiting for a free named-pipe instance only. Once a
 request connects, request writing and the synchronous response read have no
-deadline, so a stuck command can keep that client waiting. This daemon does not
-yet claim background render ownership, recovery, or cancellation.
+deadline, so a stuck synchronous preview or edit can keep that client waiting.
+Exports return before encoding, survive adapter EOF, and support cancellation.
+Interrupted exports are detected on subsequent job reads; automatic resumption
+and incremental job events are not implemented.
 
 Run the Windows process and pipe acceptance tests with:
 

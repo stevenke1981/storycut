@@ -7,6 +7,7 @@ Run after building the CLI: python -X utf8 tests/product_acceptance/story_workfl
 import argparse
 import hashlib
 import json
+from export_jobs import await_export
 import math
 from pathlib import Path
 from queue import Queue
@@ -175,7 +176,7 @@ def main():
             assert not response["ok"] and response["error"]["code"] == error, response
         else:
             assert result.returncode == 0 and response["ok"], (tool, response, result.stderr)
-        return response
+        return await_export(call, response) if tool == "storycut_render_start" else response
 
     try:
         images = [work / f"場景-{i + 1:03}.png" for i in range(72)]

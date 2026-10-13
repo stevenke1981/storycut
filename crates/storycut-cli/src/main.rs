@@ -29,7 +29,7 @@ fn run(raw: Vec<String>) -> i32 {
         return match storycut_mcp::run_stdio(
             &workspace,
             &storycut_command::supported_tools(),
-            storycut_command::dispatch,
+            storycut_client::dispatch,
         ) {
             Ok(()) => 0,
             Err(e) => {
@@ -45,7 +45,7 @@ fn run(raw: Vec<String>) -> i32 {
     if !json_mode {
         eprintln!("Tip: use --json for a machine-readable result.");
     }
-    match storycut_command::dispatch(&workspace, &tool, payload) {
+    match storycut_client::dispatch(&workspace, &tool, payload) {
         Ok(value) => {
             println!("{}", value);
             0

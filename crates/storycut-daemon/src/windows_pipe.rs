@@ -231,6 +231,10 @@ mod windows {
         };
         pipe.write_all(&response)
             .map_err(|error| DaemonError::Ipc(format!("response write failed: {error}")))?;
+        // FlushFileBuffers waits for the client to read the reply. Disconnect
+        // otherwise discards unread bytes, including committed large replies.
+        pipe.sync_all()
+            .map_err(|error| DaemonError::Ipc(format!("response drain failed: {error}")))?;
         // SAFETY: `pipe` still owns the connected server endpoint and remains
         // live until after this disconnect call.
         unsafe {
@@ -246,6 +250,9 @@ mod windows {
         let bytes = crate::server::encode_response(response);
         pipe.write_all(&bytes).map_err(|error| {
             DaemonError::Ipc(format!("overload response write failed: {error}"))
+        })?;
+        pipe.sync_all().map_err(|error| {
+            DaemonError::Ipc(format!("overload response drain failed: {error}"))
         })?;
         // SAFETY: `pipe` still owns the connected server endpoint and remains
         // live until after this disconnect call.

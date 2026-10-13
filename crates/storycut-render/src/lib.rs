@@ -17,6 +17,10 @@ use std::process::{Command, Output, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
 use thiserror::Error;
 
+mod control;
+use control::ControlledCommand;
+pub use control::RenderControl;
+
 pub const TIMEBASE: u64 = 705_600_000;
 const MAX_LAYER_PIXELS: u128 = 16_777_216;
 static TEMP_SEQUENCE: AtomicU64 = AtomicU64::new(1);
@@ -31,6 +35,8 @@ impl Drop for TempArtifact {
 
 #[derive(Debug, Error)]
 pub enum RenderError {
+    #[error("render cancelled")]
+    Cancelled,
     #[error("invalid project: {0}")]
     InvalidProject(String),
     #[error("unsupported render feature: {0}")]
@@ -55,6 +61,7 @@ impl RenderError {
     /// Stable error code for the command/CLI/MCP adapters.
     pub fn code(&self) -> &'static str {
         match self {
+            Self::Cancelled => "CANCELLED",
             Self::InvalidProject(_) => "INVALID_PROJECT",
             Self::UnsupportedFeature(_) => "UNSUPPORTED_FEATURE",
             Self::InvalidOptions(_) => "INVALID_OPTIONS",
@@ -394,6 +401,21 @@ pub fn render_with_root(
     )
 }
 
+/// Render in a daemon worker with cancellation across probing, loudness,
+/// encoding, verification and hashing. Progress comes from FFmpeg out_time_us.
+pub fn render_with_control(
+    project: &Value,
+    project_path: &Path,
+    authorized_root: &Path,
+    output: &Path,
+    options: &Value,
+    control: &RenderControl,
+) -> Result<RenderReport, RenderError> {
+    control::with_control(control, || {
+        render_with_root(project, project_path, authorized_root, output, options)
+    })
+}
+
 fn render_impl(
     project: &Value,
     project_path: &Path,
@@ -401,6 +423,7 @@ fn render_impl(
     output: &Path,
     options: &Value,
 ) -> Result<RenderReport, RenderError> {
+    control::check()?;
     let snapshot = parse_project(project)?;
     let opts = parse_options(options)?;
     let (range_start, requested_end) = (opts.range_start, opts.range_end);
@@ -567,6 +590,8 @@ fn render_impl(
         }
     }
 
+    control::verifying();
+    control::check()?;
     let verified = match verify_output(
         &temporary,
         &snapshot,
@@ -607,6 +632,7 @@ fn render_impl(
             return Err(RenderError::MediaChanged(path.clone()));
         }
     }
+    control::check()?;
     publish_without_overwrite(&temporary, &output)?;
 
     let warnings = if opts.subtitle_mode == "burn" {
@@ -823,10 +849,10 @@ fn render_frame_impl(
             "png",
         ])
         .arg(&png_temporary)
-        .output()
+        .controlled_output()
     {
         Ok(output) => output,
-        Err(error) => return Err(RenderError::Io(error)),
+        Err(error) => return Err(error),
     };
     let _ = fs::remove_file(&intermediate);
     if !extraction.status.success() {
@@ -863,10 +889,10 @@ fn render_frame_impl(
         .args(["-hide_banner", "-nostdin", "-v", "error", "-xerror", "-i"])
         .arg(&png_temporary)
         .args(["-f", "null", "-"])
-        .output()
+        .controlled_output()
     {
         Ok(output) => output,
-        Err(error) => return Err(RenderError::Io(error)),
+        Err(error) => return Err(error),
     };
     if !decode_check.status.success() {
         let _ = fs::remove_file(&png_temporary);
@@ -2101,6 +2127,9 @@ fn run_render(
         index += 1;
     }
     for (spec, ..) in audio_inputs {
+        if wave_signature(&spec.path)? {
+            args.extend(["-f".into(), "wav".into()]);
+        }
         args.extend([
             "-ss".into(),
             ticks_to_seconds(spec.source_in),
@@ -2305,7 +2334,7 @@ fn run_render(
         })?;
 
     args.extend([
-        "-filter_complex_script".into(),
+        "-/filter_complex".into(),
         filter_script_name.to_owned(),
         "-map".into(),
         format!("[{video_label}]"),
@@ -2336,7 +2365,7 @@ fn run_render(
     let result = Command::new("ffmpeg")
         .current_dir(output.parent().unwrap_or_else(|| Path::new(".")))
         .args(&args)
-        .output()?;
+        .render_output(duration_ticks)?;
     if !result.status.success() {
         return Err(process_error("ffmpeg", result));
     }
@@ -2429,6 +2458,9 @@ fn measure_loudness(
     ];
     let mut input_map = HashMap::new();
     for (index, (spec, ..)) in audio_inputs.iter().enumerate() {
+        if wave_signature(&spec.path)? {
+            args.extend(["-f".into(), "wav".into()]);
+        }
         args.extend([
             "-ss".into(),
             ticks_to_seconds(spec.source_in),
@@ -2451,7 +2483,7 @@ fn measure_loudness(
     script.write_all(graph.join(";").as_bytes())?;
     drop(script);
     args.extend([
-        "-filter_complex_script".into(),
+        "-/filter_complex".into(),
         script_path.to_string_lossy().into_owned(),
         "-map".into(),
         "[ameasure]".into(),
@@ -2459,7 +2491,7 @@ fn measure_loudness(
         "null".into(),
         "-".into(),
     ]);
-    let result = Command::new("ffmpeg").args(&args).output()?;
+    let result = Command::new("ffmpeg").args(&args).controlled_output()?;
     if !result.status.success() {
         return Err(process_error("ffmpeg loudness measurement", result));
     }
@@ -2766,7 +2798,7 @@ fn verify_output(
             "json",
         ])
         .arg(path)
-        .output()?;
+        .controlled_output()?;
     if !output.status.success() {
         return Err(process_error("ffprobe", output));
     }
@@ -2812,7 +2844,7 @@ fn verify_output(
         .args(["-hide_banner", "-nostdin", "-v", "error", "-xerror", "-i"])
         .arg(path)
         .args(["-map", "0:v:0", "-f", "null", "-"])
-        .output()?;
+        .controlled_output()?;
     if !video_decode.status.success() {
         return Err(process_error("ffmpeg video decode verifier", video_decode));
     }
@@ -2873,37 +2905,13 @@ fn verify_output(
 }
 
 fn count_decoded_audio_samples(path: &Path, sample_rate: u32) -> Result<u64, RenderError> {
-    let mut child = Command::new("ffmpeg")
+    let (status, bytes) = Command::new("ffmpeg")
         .args(["-hide_banner", "-nostdin", "-v", "error", "-xerror", "-i"])
         .arg(path)
         .args(["-map", "0:a:0", "-f", "s16le", "-ac", "2", "-ar"])
         .arg(sample_rate.to_string())
         .arg("-")
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .spawn()?;
-    let mut stdout = child
-        .stdout
-        .take()
-        .ok_or_else(|| RenderError::VerificationFailed("audio verifier has no stdout".into()))?;
-    let mut buffer = [0_u8; 64 * 1024];
-    let mut bytes = 0_u64;
-    loop {
-        match stdout.read(&mut buffer) {
-            Ok(0) => break,
-            Ok(count) => {
-                bytes = bytes.checked_add(count as u64).ok_or_else(|| {
-                    RenderError::VerificationFailed("decoded audio byte count overflow".into())
-                })?
-            }
-            Err(error) => {
-                let _ = child.kill();
-                let _ = child.wait();
-                return Err(RenderError::Io(error));
-            }
-        }
-    }
-    let status = child.wait()?;
+        .controlled_byte_count()?;
     if !status.success() {
         return Err(RenderError::ProcessFailed {
             program: "ffmpeg audio decode verifier".into(),
@@ -2925,7 +2933,11 @@ fn probe_facts(path: &Path) -> Result<MediaFacts, RenderError> {
             path.display()
         )));
     }
-    let output = Command::new("ffprobe")
+    let mut command = Command::new("ffprobe");
+    if wave_signature(path)? {
+        command.args(["-f", "wav"]);
+    }
+    let output = command
         .args([
             "-v",
             "error",
@@ -2936,7 +2948,7 @@ fn probe_facts(path: &Path) -> Result<MediaFacts, RenderError> {
             "json",
         ])
         .arg(path)
-        .output()?;
+        .controlled_output()?;
     if !output.status.success() {
         return Err(process_error("ffprobe", output));
     }
@@ -3124,7 +3136,7 @@ fn tool_version(program: &str) -> Result<String, RenderError> {
         .arg("-version")
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
-        .output()?;
+        .controlled_output()?;
     if !output.status.success() {
         return Err(process_error(program, output));
     }
@@ -3378,11 +3390,28 @@ fn absolute_path(path: &Path) -> Result<PathBuf, RenderError> {
     }
 }
 
+/// A periodic PCM signal can outscore WAV as MPEG-TS in FFmpeg auto-probing.
+/// Trust the actual container signature; never force formats by extension.
+fn wave_signature(path: &Path) -> Result<bool, RenderError> {
+    control::check()?;
+    let mut file = File::open(path)?;
+    let mut header = [0_u8; 12];
+    match file.read_exact(&mut header) {
+        Ok(()) => Ok(
+            matches!(&header[..4], b"RIFF" | b"RF64" | b"RIFX" | b"BW64")
+                && &header[8..] == b"WAVE",
+        ),
+        Err(error) if error.kind() == std::io::ErrorKind::UnexpectedEof => Ok(false),
+        Err(error) => Err(error.into()),
+    }
+}
+
 fn sha256_file(path: &Path) -> Result<String, RenderError> {
     let mut file = File::open(path)?;
     let mut hasher = Sha256::new();
     let mut buffer = [0_u8; 64 * 1024];
     loop {
+        control::check()?;
         let read = file.read(&mut buffer)?;
         if read == 0 {
             break;

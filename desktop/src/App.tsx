@@ -36,6 +36,47 @@ export function App() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [job, setJob] = useState<Job | null>(null);
+  const [exportJob, setExportJob] = useState<Job | null>(null);
+  const [trackJobId, setTrackJobId] = useState("");
+  const displayedJob = exportJob?.project_id === project?.project_id ? exportJob : job;
+  const exportActive = Boolean(exportJob && ["queued", "running", "cancelling"].includes(exportJob.state));
+
+  useEffect(() => {
+    if (!project || mode !== "tauri") { setExportJob(null); return; }
+    const workspace = api.workspacePath;
+    const saved = localStorage.getItem(`storycut-export:${workspace}:${project.project_id}`);
+    setExportJob(null);
+    let disposed = false;
+    if (saved) void api.checked<{ job: Job }>("storycut_job_get", { job_id: saved, include_preview: false })
+      .then((result) => { if (!disposed && api.workspacePath === workspace) setExportJob(jobOf(result.data)); })
+      .catch((caught) => { if (!disposed) setError(`恢復輸出工作失敗：${errorText(caught)}`); });
+    return () => { disposed = true; };
+  }, [project?.project_id, mode, api.workspacePath]);
+
+  useEffect(() => {
+    if (!exportJob || mode !== "tauri" || !project || exportJob.project_id !== project.project_id) return;
+    localStorage.setItem(`storycut-export:${api.workspacePath}:${project.project_id}`, exportJob.job_id);
+    if (!["queued", "running", "cancelling"].includes(exportJob.state)) return;
+    const id = exportJob.job_id;
+    const workspace = api.workspacePath;
+    let disposed = false;
+    let timer = 0;
+    const poll = async () => {
+      try {
+        const result = await api.checked<{ job: Job }>("storycut_job_get", { job_id: id, include_preview: false });
+        if (disposed || api.workspacePath !== workspace) return;
+        const latest = jobOf(result.data);
+        setExportJob(latest);
+        if (latest.state === "succeeded") setToast(`輸出完成：${latest.artifacts[0]?.relative_path ?? id}`);
+        else if (["failed", "cancelled", "interrupted"].includes(latest.state)) setError(`輸出${latest.state === "failed" ? "失敗" : "已停止"}：${latest.failure_code ?? latest.state}`);
+        else timer = window.setTimeout(() => { void poll(); }, 500);
+      } catch (caught) {
+        if (!disposed) { setError(`更新輸出工作失敗：${errorText(caught)}`); timer = window.setTimeout(() => { void poll(); }, 2000); }
+      }
+    };
+    timer = window.setTimeout(() => { void poll(); }, 500);
+    return () => { disposed = true; window.clearTimeout(timer); };
+  }, [exportJob?.job_id, exportJob?.state, mode, project?.project_id]);
   const [subtitleMode, setSubtitleMode] = useState<"none" | "burn">("none");
   const [encoder, setEncoder] = useState<"h264_cpu" | "h264_nvenc">("h264_cpu");
   const [trimState, setTrimState] = useState<{ clipId: string; edge: "left" | "right"; origin: number; start: number; duration: number; original: Clip } | null>(null);
@@ -140,7 +181,7 @@ export function App() {
     await loadCapabilities();
     if (expectedGeneration !== sessionGeneration.current || expectedWorkspace !== api.workspacePath) return;
     const p = projectOf(projectResult.data);
-    if (projectRef.current?.project_id !== p.project_id) setJob(null);
+    if (projectRef.current?.project_id !== p.project_id) { setJob(null); setExportJob(null); }
     previewVideo.current?.pause();
     setProject(p);
     setTimeline(timelineOf(timelineResult.data));
@@ -596,7 +637,7 @@ export function App() {
           duration_ticks: durationTicks,
         });
         const completed = jobOf(result.data) as Job & { start_tick?: number; duration_ticks?: number };
-        setJob(completed);
+        setExportJob(completed);
         if (completed.kind !== "preview_range" || completed.state !== "succeeded") {
           setPreviewState("unavailable");
           throw new Error(completed.failure_code ?? `影片預覽工作狀態：${completed.state}`);
@@ -673,7 +714,7 @@ export function App() {
   }
 
   async function startRender() {
-    if (!project || !timeline) return;
+    if (!project || !timeline || exportActive) return;
     if (mode === "demo") { setToast("預覽模式不會建立輸出影片。"); return; }
     if (!supportsTool("storycut_render_start")) { setError("核心能力清單未宣告 render_start；沒有建立工作或輸出檔。"); return; }
     await safeAction(async () => {
@@ -683,7 +724,7 @@ export function App() {
       try {
         const result = await api.checked<{ job: Job }>("storycut_render_start", { project_id: project.project_id, revision: project.revision, path, overwrite: false, idempotency_key: idempotencyKey("render"), subtitle_mode: subtitleMode, encoder, range_start_tick: 0, range_end_tick: null });
         const completed = jobOf(result.data);
-        setJob(completed);
+        setExportJob(completed);
         if (completed.state === "succeeded") {
           const artifact = completed.artifacts.find((item) => item.mime_type === "video/mp4");
           if (!artifact) throw new Error("核心將輸出工作標示為成功，但沒有回傳 MP4 產物。");
@@ -691,18 +732,18 @@ export function App() {
         } else if (["failed", "cancelled", "interrupted"].includes(completed.state)) {
           throw new Error(`核心輸出${completed.state === "failed" ? "失敗" : "已停止"}：${completed.failure_code ?? completed.state}`);
         } else {
-          setToast("輸出工作已送交核心；請在右側更新工作狀態。尚未確認影片完成。");
+          setToast("背景輸出已開始，可繼續編輯；進度將自動更新。");
         }
       } finally { setBusy(false); }
     });
   }
 
   async function refreshJob() {
-    if (!job || mode === "demo") return;
+    if (!displayedJob || mode === "demo") return;
     await safeAction(async () => {
-      const result = await api.checked<{ job: Job }>("storycut_job_get", { job_id: job.job_id, include_preview: true });
+      const result = await api.checked<{ job: Job }>("storycut_job_get", { job_id: displayedJob.job_id, include_preview: true });
       const latest = jobOf(result.data);
-      setJob(latest);
+      if (latest.kind === "render") setExportJob(latest); else setJob(latest);
       try {
         if (latest.kind === "preview_frame" && latest.state === "succeeded") await showPreviewFrame(latest);
         else if (latest.kind === "preview_range" && latest.state === "succeeded" && previewRange) await showPreviewRange(latest, previewRange.startTick, previewRange.durationTicks);
@@ -719,10 +760,21 @@ export function App() {
   }
 
   async function cancelJob() {
-    if (!job || !project || mode === "demo") return;
-    await mutate(async () => {
-      const result = await api.checked<{ job: Job }>("storycut_job_cancel", { job_id: job.job_id, idempotency_key: idempotencyKey("job-cancel") });
-      setJob(jobOf(result.data));
+    if (!displayedJob || !project || mode === "demo") return;
+    await safeAction(async () => {
+      const result = await api.checked<{ job: Job }>("storycut_job_cancel", { job_id: displayedJob.job_id, idempotency_key: idempotencyKey("job-cancel") });
+      const latest = jobOf(result.data);
+      if (latest.kind === "render") setExportJob(latest); else setJob(latest);
+    });
+  }
+
+  async function trackExport() {
+    if (!project || !trackJobId.trim()) return;
+    await safeAction(async () => {
+      const result = await api.checked<{ job: Job }>("storycut_job_get", { job_id: trackJobId.trim(), include_preview: false });
+      const latest = jobOf(result.data);
+      if (latest.kind !== "render" || latest.project_id !== project.project_id) throw new Error("工作不屬於目前專案的影片輸出。");
+      setExportJob(latest);
     });
   }
 
@@ -812,7 +864,7 @@ export function App() {
           <button className="button button-quiet" disabled={busy || mode === "demo"} onClick={() => void openProject()}><Icon name="folder" /> 開啟</button>
           <button className="button button-quiet" disabled={busy || mode === "demo"} onClick={() => void createProject()}><Icon name="plus" /> 新專案</button>
           {mode === "tauri" && project && <button className="button button-quiet sync-project-button" disabled={busy} title="從共用核心重新讀取目前修訂" onClick={() => void synchronizeProject()}>同步工程</button>}
-          <button className="button button-primary" disabled={!project || busy} onClick={() => void startRender()}><Icon name="render" /> 匯出</button>
+          <button className="button button-primary" disabled={!project || busy || exportActive} onClick={() => void startRender()}><Icon name="render" /> 匯出</button>
         </div>
       </header>
 
@@ -862,7 +914,7 @@ export function App() {
         <aside className="inspector-panel panel">
           <div className="panel-heading inspector-heading"><div><span className="eyebrow">INSPECTOR</span><h2>屬性</h2></div><span className="inspector-kicker">{selectedClipData ? "CLIP" : selectedAssetData ? "MEDIA" : "PROJECT"}</span></div>
           {!project ? <div className="inspector-empty"><div className="inspector-empty-icon"><Icon name="image" size={21} /></div><strong>尚未選取項目</strong><p>開啟一個專案，或選取素材與片段來查看資訊。</p></div> : selectedClipData ? <div className="inspector-content inspector-combined"><ClipInspector clip={selectedClipData} asset={selectedAssetData} track={timeline?.tracks.find((item) => item.id === selectedClipData.track_id)} onChange={(patch) => void trimClip(selectedClipData, selectedClipData.start_tick, patch.duration_ticks ?? selectedClipData.duration_ticks)} onAudioChange={(audio) => void updateAudioClip(selectedClipData, audio)} sampleRate={project.audio_sample_rate} />{selectedClipData.kind === "image" && selectedAssetData?.kind === "image" && <ImageMotionInspector key={`${project.project_id}:${api.workspacePath ?? ""}:${selectedClipData.id}`} projectId={project.project_id} revision={project.revision} workspace={api.workspacePath} clip={selectedClipData} asset={selectedAssetData} assets={assets} imageClips={(timeline?.clips ?? []).filter((clip) => clip.kind === "image" && timeline?.tracks.some((track) => track.id === clip.track_id && !track.locked))} mode={mode} busy={busy} supported={mode === "tauri" && implementedTools.includes("storycut_focal_motion_apply")} onApply={(args, dryRun, request) => runHighLevel("storycut_focal_motion_apply", args as unknown as Record<string, unknown>, dryRun, request)} />}</div> : selectedAssetData ? <AssetInspector asset={selectedAssetData} onAdd={() => void addAssetClip(selectedAssetData.id)} /> : <ProjectInspector project={project} timeline={timeline} onAddDefaults={() => void addStarterTracks()} canAddDefaults={mode === "demo" || supportsOperation("track.add")} />}
-          <div className="inspector-bottom"><div className="render-card"><div className="render-card-top"><div className="render-icon"><Icon name="render" size={15} /></div><div><strong>輸出設定</strong><span>H.264 · AAC · MP4</span></div></div><label className="field-label">字幕處理<select disabled={!project} value={subtitleMode} onChange={(event) => setSubtitleMode(event.target.value as typeof subtitleMode)}><option value="none">不燒錄字幕</option><option value="burn">燒錄字幕</option></select></label><label className="field-label">編碼器<select disabled={!project} value={encoder} onChange={(event) => setEncoder(event.target.value as typeof encoder)}><option value="h264_cpu">H.264 · CPU</option><option value="h264_nvenc">H.264 · NVIDIA NVENC</option></select></label><button className="button button-primary render-button" disabled={!project || busy || mode === "tauri" && !supportsTool("storycut_render_start")} title={mode === "tauri" && !supportsTool("storycut_render_start") ? "核心尚未實作 render_start" : "匯出影片"} onClick={() => void startRender()}><Icon name="render" /> 開始匯出</button></div>{job && <div className="job-card"><div className="job-title"><strong>{job.kind === "render" ? "影片輸出工作" : "預覽工作"}</strong><span className={`job-state ${job.state}`}>{job.state}</span></div><div className="job-meta">來源修訂 v{job.source_revision} · {job.job_id}</div><div className="progress-track"><i style={{ width: `${Math.round((job.progress ?? (job.state === "succeeded" ? 1 : 0)) * 100)}%` }} /></div><div className="job-actions"><span>{job.progress == null ? "等待核心狀態" : `${Math.round(job.progress * 100)}%`}</span><button onClick={() => void refreshJob()}>更新狀態</button>{["queued", "running", "cancelling"].includes(job.state) && <button onClick={() => void cancelJob()}>取消</button>}</div></div>}</div>
+          <div className="inspector-bottom"><div className="render-card"><div className="render-card-top"><div className="render-icon"><Icon name="render" size={15} /></div><div><strong>輸出設定</strong><span>H.264 · AAC · MP4</span></div></div><label className="field-label">字幕處理<select disabled={!project} value={subtitleMode} onChange={(event) => setSubtitleMode(event.target.value as typeof subtitleMode)}><option value="none">不燒錄字幕</option><option value="burn">燒錄字幕</option></select></label><label className="field-label">編碼器<select disabled={!project} value={encoder} onChange={(event) => setEncoder(event.target.value as typeof encoder)}><option value="h264_cpu">H.264 · CPU</option><option value="h264_nvenc">H.264 · NVIDIA NVENC</option></select></label><button className="button button-primary render-button" disabled={!project || busy || exportActive || mode === "tauri" && !supportsTool("storycut_render_start")} title={mode === "tauri" && !supportsTool("storycut_render_start") ? "核心尚未實作 render_start" : "匯出影片"} onClick={() => void startRender()}><Icon name="render" /> 開始匯出</button></div>{mode === "tauri" && project && <label className="field-label">追蹤 CLI / MCP 輸出工作<input aria-label="輸出工作 ID" value={trackJobId} onChange={(event) => setTrackJobId(event.target.value)} placeholder="render-…" /><button className="button button-quiet" disabled={!trackJobId.trim()} onClick={() => void trackExport()}>追蹤工作</button></label>}{displayedJob && <div className="job-card"><div className="job-title"><strong>{displayedJob.kind === "render" ? "影片輸出工作" : "預覽工作"}</strong><span className={`job-state ${displayedJob.state}`}>{displayedJob.state}</span></div><div className="job-meta">來源修訂 v{displayedJob.source_revision} · {displayedJob.job_id}</div><div className="progress-track" role="progressbar" aria-label="輸出工作進度" aria-valuemin={0} aria-valuemax={100} aria-valuenow={displayedJob.progress == null ? undefined : Math.round(displayedJob.progress * 100)}><i style={{ width: `${Math.round((displayedJob.progress ?? (displayedJob.state === "succeeded" ? 1 : 0)) * 100)}%` }} /></div><div className="job-actions"><span>{displayedJob.progress == null ? "等待核心狀態" : `${Math.round(displayedJob.progress * 100)}%`}</span><button onClick={() => void refreshJob()}>更新狀態</button>{["queued", "running", "cancelling"].includes(displayedJob.state) && displayedJob.kind === "render" && <button disabled={displayedJob.state === "cancelling"} onClick={() => void cancelJob()}>{displayedJob.state === "cancelling" ? "正在取消" : "取消"}</button>}</div>{displayedJob.failure_code && <div role="status">{displayedJob.failure_code}：{displayedJob.failure_message ?? "請查看工作記錄"}</div>}{displayedJob.state === "succeeded" && displayedJob.artifacts.map((artifact) => <div key={artifact.artifact_id} className="job-meta">{artifact.relative_path}</div>)}</div>}</div>
         </aside>
       </section>
 

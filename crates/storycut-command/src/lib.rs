@@ -17,6 +17,7 @@ use storycut_core::{
 };
 use uuid::Uuid;
 
+mod jobs;
 mod narration;
 
 #[derive(Debug)]
@@ -78,6 +79,7 @@ pub fn supported_tools() -> Vec<String> {
         "storycut_preview_range",
         "storycut_render_start",
         "storycut_job_get",
+        "storycut_job_cancel",
     ]
     .into_iter()
     .map(str::to_owned)
@@ -85,6 +87,24 @@ pub fn supported_tools() -> Vec<String> {
 }
 
 pub fn dispatch(workspace: &Path, tool: &str, args: Value) -> Result<Value, CommandError> {
+    dispatch_impl(workspace, tool, args, false)
+}
+
+/// Application dispatch, called by the workspace owner. Exports return promptly.
+pub fn dispatch_background(
+    workspace: &Path,
+    tool: &str,
+    args: Value,
+) -> Result<Value, CommandError> {
+    dispatch_impl(workspace, tool, args, true)
+}
+
+fn dispatch_impl(
+    workspace: &Path,
+    tool: &str,
+    args: Value,
+    background: bool,
+) -> Result<Value, CommandError> {
     if let Some((op_name, allowed)) = shortcut_spec(tool) {
         let mut fields = vec![
             "project_id",
@@ -957,6 +977,7 @@ pub fn dispatch(workspace: &Path, tool: &str, args: Value) -> Result<Value, Comm
             response["warnings"] = json!([{"code":"SYNCHRONOUS_PREVIEW","message":"Range preview currently completes before preview_range returns; cancellation is not available."}]);
             Ok(response)
         }
+        "storycut_job_cancel" => jobs::cancel(workspace, &args),
         "storycut_render_start" => {
             require_object_keys(
                 &args,
@@ -1020,6 +1041,9 @@ pub fn dispatch(workspace: &Path, tool: &str, args: Value) -> Result<Value, Comm
                 ));
             }
             let job_id = stable_job_id(id, key);
+            if let Some(response) = jobs::replay(workspace, &job_id, &args)? {
+                return Ok(response);
+            }
             let jobs = job_dir(workspace)?;
             let initial = jobs.join(format!("{job_id}.initial.json"));
             let result = jobs.join(format!("{job_id}.result.json"));
@@ -1076,6 +1100,18 @@ pub fn dispatch(workspace: &Path, tool: &str, args: Value) -> Result<Value, Comm
             write_json_new(&initial, &json!({"request":args,"job":running}))?;
             let project_json = serde_json::to_value(&project).map_err(internal_error)?;
             let project_path = store.project_path().map_err(core_error)?;
+            if background {
+                return jobs::start(
+                    workspace,
+                    &jobs,
+                    &job_id,
+                    &args,
+                    &running,
+                    project_json,
+                    project_path,
+                    _lock,
+                );
+            }
             let stage = jobs.join(format!("{job_id}.stage.mp4"));
             let render_result = storycut_render::render_with_root(
                 &project_json,
@@ -1129,6 +1165,9 @@ pub fn dispatch(workspace: &Path, tool: &str, args: Value) -> Result<Value, Comm
             let _ = field_bool(&args, "include_preview")?;
             if !valid_id(id) {
                 return Err(CommandError::new("INVALID_ARGUMENT", "Invalid job_id"));
+            }
+            if let Some(job) = jobs::get(workspace, id)? {
+                return Ok(job);
             }
             let jobs = job_dir(workspace)?;
             let result = jobs.join(format!("{id}.result.json"));
@@ -2516,6 +2555,7 @@ fn render_error(error: storycut_render::RenderError) -> CommandError {
     let code = match error.code() {
         "UNSUPPORTED_FEATURE" => "UNSUPPORTED_FEATURE",
         "MEDIA_CHANGED" => "MEDIA_CHANGED",
+        "CANCELLED" => "CANCELLED",
         "OUTPUT_EXISTS" => "OVERWRITE_DENIED",
         "INVALID_PROJECT" | "INVALID_OPTIONS" => "INVALID_ARGUMENT",
         "PROCESS_FAILED" | "VERIFICATION_FAILED" => "RENDER_FAILED",

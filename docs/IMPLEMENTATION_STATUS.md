@@ -1,5 +1,7 @@
 # StoryCut 實作與驗收紀錄
 
+> 2026-10-13 更新：Windows 背景匯出閉環已實作。最新能力、真實驗證與未驗項見 [背景匯出](ASYNC_EXPORT.md)／[驗證紀錄](ASYNC_EXPORT_VALIDATION.md)。以下較早日期的同步限制保留為歷史紀錄。
+
 ## 2026-09-30：夜燈說書分支整合與回歸修正
 
 整合來源：`public/feat/night-lantern-profile` 的 `004de4e`，基底主線 `a9c964b`。環境：Windows x64、Rust 1.94.1、FFmpeg/ffprobe 8.1.1（libass）。
